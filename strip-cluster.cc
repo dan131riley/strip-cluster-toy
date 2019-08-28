@@ -3,7 +3,6 @@
 #include <algorithm>
 
 #include "Clusterizer.h"
-#include "FEDChannel.h"
 #include "FEDZSChannelUnpacker.h"
 
 class StripByStripAdder {
@@ -34,13 +33,28 @@ private:
   std::vector<SiStripCluster>& record_;
 };
 
+void testUnpackZS(const FEDChannel& channel, uint16_t stripOffset)
+{
+  const uint8_t* data = channel.data()-channel.offset();
+  uint16_t payloadOffset = channel.offset()+7;
+  uint16_t offset = payloadOffset;
+  uint16_t payloadLength = channel.length()-7;
+
+  while (offset < payloadOffset+payloadLength) {
+    uint8_t stripIndex = data[(offset++)^7];
+    uint8_t groupLength = data[(offset++)^7];
+    std::cout << "New group offset " << offset << " length " << (int) groupLength << " first channel " << (int) stripIndex << std::endl;
+    offset += groupLength;
+  }
+}
+
+
 template<typename OUT>
 OUT unpackZS(const FEDChannel& chan, uint16_t stripOffset, OUT out, detId_t idet)
 {
   auto unpacker = FEDZSChannelUnpacker::zeroSuppressedModeUnpacker(chan);
   while (unpacker.hasData()) {
     auto digi = SiStripDigi(stripOffset+unpacker.sampleNumber(), unpacker.adc());
-    //std::cout << "unpackZS det " << idet << " digi " << digi.strip() << " sample " << (unsigned int) unpacker.sampleNumber() << " adc " << (unsigned int) unpacker.adc() << std::endl;
     if (digi.strip() != 0) {
       *out++ = digi;
     }
@@ -58,7 +72,6 @@ FEDSet fillFeds()
 
   while (fedfile.read((char*)&detid, sizeof(detid)).gcount() == sizeof(detid)) {
     FEDChannel fed(fedfile);
-    //std::cout << "Det " << detid << " fed " << fed.fedId() << " channel " << (int) fed.fedCh() << " length " << fed.length() << std::endl;
     feds[detid].push_back(std::move(fed));
   }
   return feds;
@@ -74,9 +87,9 @@ fillClusters(detId_t idet, Clusterizer& clusterizer, Clusterizer::State& state, 
   state.reset(det);
 
   for (auto const& chan : channels) {
-    //std::cout << "Processing channel for detid " << idet << " fed " << chan.fedId() << " channel " << (int) chan.fedCh() << " len:off " << chan.length() << ":" << chan.offset() << " ipair " << chan.iPair() << std::endl;
     auto perStripAdder = StripByStripAdder(clusterizer, state, out);
     unpackZS(chan, chan.iPair()*256, perStripAdder, idet);
+    testUnpackZS(chan, chan.iPair()*256);
   }
   clusterizer.stripByStripEnd(state, out);
 
@@ -84,7 +97,7 @@ fillClusters(detId_t idet, Clusterizer& clusterizer, Clusterizer::State& state, 
     first = false;
     std::cout << "Printing clusters for detid " << idet << std::endl;
     for (const auto& cluster : out) {
-      std::cout << "Cluster " << cluster.firstStrip() << ": ";
+      std::cout << "Cluster " << cluster.firstStrip() << " adcs: ";
       for (const auto& ampl : cluster.amplitudes()) {
         std::cout << (int) ampl << " ";
       }
@@ -102,8 +115,9 @@ int main()
 
   FEDSet feds(fillFeds());
   for (auto idet : clusterizer.allDetIds()) {
-    if (feds.find(idet) != feds.end()) {
-      auto out = fillClusters(idet, clusterizer, state, feds[idet]);
+    auto it = feds.find(idet);
+    if (it != feds.end()) {
+      auto out = fillClusters(idet, clusterizer, state, it->second);
     }
   }
 }

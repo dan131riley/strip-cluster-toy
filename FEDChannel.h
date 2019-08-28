@@ -28,12 +28,4 @@ private:
   fedCh_t fedch_;
 };
 
-//inline FEDChannel::FEDChannel(const uint8_t* data, const size_t offset, const uint16_t length, fedId_t feded, fedCh_t fedch)
-//: data_(data),
-//  offset_(offset),
-//  length_(length),
-//  fedid_(fedid),
-//  fedch_(frech)
-//{}
-
 using FEDSet = std::map<detId_t, std::vector<FEDChannel>>;

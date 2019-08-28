@@ -9,7 +9,6 @@ inline float chargePerCM(Iter a, Iter b) {
   return float(std::accumulate(a,b,int(0)))/0.047f;
 }
 
-
 Clusterizer::Det::Det(detId_t detid, std::ifstream& file)
   : id_(detid)
 {
@@ -21,7 +20,6 @@ Clusterizer::Det::Det(detId_t detid, std::ifstream& file)
     fedIDs_.push_back(fid);
     size_t count;
     file.read((char*)&count, sizeof(count));
-    //std::cout << "Fed " << fid << " det " << detid << std::endl;
     if (count > 0) {
       std::vector<DetStrip> tmpDets(count);
       file.read((char*)tmpDets.data(), count*sizeof(DetStrip));
@@ -33,11 +31,9 @@ Clusterizer::Det::Det(detId_t detid, std::ifstream& file)
     auto last = dets.back().strip_;
     strips_.resize(last - offset_ + 1);
     for (const auto& det : dets) {
-      //std::cout << det.strip_ << " ";
       auto ind = det.strip_-offset_;
       strips_[det.strip_-offset_] = det;
     }
-    //std::cout << std::endl;
   }
 }
 
