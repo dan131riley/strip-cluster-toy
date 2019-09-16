@@ -9,56 +9,6 @@ inline float chargePerCM(Iter a, Iter b) {
   return float(std::accumulate(a,b,int(0)))/0.047f;
 }
 
-Clusterizer::Det::Det(detId_t detid, std::ifstream& file)
-  : id_(detid)
-{
-  fedId_t fid;
-
-  std::vector<DetStrip> dets;
-
-  while (file.read((char*)&fid, sizeof(fid)).gcount() == sizeof(fid) && fid != UINT16_MAX) {
-    fedIDs_.push_back(fid);
-    size_t count;
-    file.read((char*)&count, sizeof(count));
-    if (count > 0) {
-      std::vector<DetStrip> tmpDets(count);
-      file.read((char*)tmpDets.data(), count*sizeof(DetStrip));
-      dets.insert(dets.end(), tmpDets.begin(), tmpDets.end());
-    }
-  }
-  if (dets.size() > 0) {
-    offset_ = dets.front().strip_;
-    auto last = dets.back().strip_;
-    strips_.resize(last - offset_ + 1);
-    for (const auto& det : dets) {
-      auto ind = det.strip_-offset_;
-      strips_[det.strip_-offset_] = det;
-    }
-  }
-}
-
-Clusterizer::Clusterizer()
-{
-  std::ifstream detfile("stripdets.bin", std::ios::in | std::ios::binary);
-
-  detId_t detid;
-
-  while (detfile.read((char*)&detid, sizeof(detid)).gcount() == sizeof(detid)) {
-    detIds_.push_back(detid);
-    Det det(detid, detfile);
-    dets_[det.id()] = std::move(det);
-  }
-}
-
-Clusterizer::Det Clusterizer::findDetId(const uint32_t id) const
-{
-  const auto it = dets_.find(id);
-  if (it != dets_.end()) {
-    return it->second;
-  }
-  return Det();
-}
-
 inline bool
 Clusterizer::candidateEnded(State const & state, const uint16_t& testStrip) const {
   uint16_t holes = testStrip - state.lastStrip - 1;
@@ -123,8 +73,8 @@ Clusterizer::appendBadNeighbors(State & state) const {
 }
 
 Clusterizer::Det
-Clusterizer::stripByStripBegin(uint32_t id) const {
-  return findDetId( id );
+Clusterizer::stripByStripBegin(fedId_t fedId) const {
+  return Det(conditions_, fedId);
 }
 
 void

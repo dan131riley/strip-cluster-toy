@@ -28,7 +28,7 @@ inline void FEDZSChannelUnpacker::readNewClusterInfo()
 {
   currentStrip_ = data_[(currentOffset_++)^7];
   valuesLeftInCluster_ = data_[(currentOffset_++)^7]-1;
-  std::cout << "New cluster offset " << currentOffset_ << " length " << (int) valuesLeftInCluster_+1 << " first strip " << (int) currentStrip_ << std::endl;
+  //std::cout << "New group offset " << currentOffset_ << " length " << (int) valuesLeftInCluster_+1 << " first strip " << (int) currentStrip_ << std::endl;
 }
 
 
@@ -47,7 +47,7 @@ FEDZSChannelUnpacker::FEDZSChannelUnpacker(const uint8_t* payload, const uint16_
 inline FEDZSChannelUnpacker FEDZSChannelUnpacker::zeroSuppressedModeUnpacker(const FEDChannel& channel)
 {
   uint16_t length = channel.length();
-  FEDZSChannelUnpacker result(channel.data()-channel.offset(),channel.offset()+7,length-7);
+  FEDZSChannelUnpacker result(channel.data(),channel.offset()+7,length-7);
   return result;
 }
 
