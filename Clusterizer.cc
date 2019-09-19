@@ -12,7 +12,7 @@ inline float chargePerCM(Iter a, Iter b) {
 inline bool
 Clusterizer::candidateEnded(State const & state, const uint16_t& testStrip) const {
   uint16_t holes = testStrip - state.lastStrip - 1;
-  return ( ( (!state.ADCs.empty())  &                    // a candidate exists, and
+  return ( ( (!state.ADCs.empty())  &&                    // a candidate exists, and
 	     (holes > MaxSequentialHoles )       // too many holes if not all are bad strips, and
 	     ) && 
 	   ( holes > MaxSequentialBad ||       // (too many bad strips anyway, or 

@@ -45,16 +45,11 @@ void testUnpackZS(const FEDChannel& channel, uint16_t stripOffset)
   while (offset < payloadOffset+payloadLength) {
     uint8_t stripIndex = data[(offset++)^7];
     uint8_t groupLength = data[(offset++)^7];
-    //std::cout << "New group offset " << offset << " length " << (int) groupLength+1
-    //          << " first channel " << (int) stripIndex << std::endl;
     for (auto i = 0; i < groupLength; ++i, ++offset) {
       auto adc = data[offset^7];
-      //std::cout << (int) adc << " ";
     }
-    //std::cout << std::endl;
   }
 }
-
 
 template<typename OUT>
 OUT unpackZS(const FEDChannel& chan, uint16_t stripOffset, OUT out, detId_t idet)

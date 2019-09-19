@@ -7,10 +7,6 @@
 #include "SiStripConditions.h"
 #include "Strip.h"
 
-using detId_t = uint32_t;
-using fedId_t = uint16_t;
-using fedCh_t = uint8_t;
-
 class Clusterizer {
 public:
   Clusterizer(const SiStripConditions* conditions) : conditions_(conditions) {}
