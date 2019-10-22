@@ -7,11 +7,14 @@
 using detId_t = uint32_t;
 using fedId_t = uint16_t;
 using fedCh_t = uint8_t;
+using stripId_t = uint16_t;
+
+static constexpr detId_t invDet = std::numeric_limits<detId_t>::max();
+static constexpr stripId_t invStrip = std::numeric_limits<stripId_t>::max();
 
 class ChannelConditions {
 public:
   static constexpr int kStripsPerChannel = 256;
-  static constexpr detId_t invDet = std::numeric_limits<detId_t>::max();
   
   ChannelConditions(detId_t det, uint16_t pair, const float* noise, const float* gain, const bool* bad)
     : detId_(det), ipair_(pair), noise_(noise), gain_(gain), bad_(bad) {}

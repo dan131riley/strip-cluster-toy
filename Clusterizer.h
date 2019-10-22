@@ -67,7 +67,6 @@ private:
 
   float ChannelThreshold = 2.0, SeedThreshold = 3.0, ClusterThresholdSquared = 25.0;
   uint8_t MaxSequentialHoles = 0, MaxSequentialBad = 1, MaxAdjacentBad = 0;
-  bool RemoveApvShots = true;
   float minGoodCharge = 1620.0;
 
   const SiStripConditions* conditions_;

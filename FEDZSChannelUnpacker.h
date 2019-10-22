@@ -6,6 +6,7 @@ class FEDZSChannelUnpacker
 {
 public:
   static FEDZSChannelUnpacker zeroSuppressedModeUnpacker(const FEDChannel& channel);
+  static FEDZSChannelUnpacker zeroSuppressedLiteModeUnpacker(const FEDChannel& channel);
   FEDZSChannelUnpacker();
   uint8_t sampleNumber() const;
   uint8_t adc() const;
@@ -51,6 +52,13 @@ inline FEDZSChannelUnpacker FEDZSChannelUnpacker::zeroSuppressedModeUnpacker(con
   return result;
 }
 
+inline FEDZSChannelUnpacker FEDZSChannelUnpacker::zeroSuppressedLiteModeUnpacker(const FEDChannel& channel)
+{
+  uint16_t length = channel.length();
+  FEDZSChannelUnpacker result(channel.data(),channel.offset()+2,length-2);
+  return result;
+}
+
 inline uint8_t FEDZSChannelUnpacker::sampleNumber() const
 {
   return currentStrip_;
@@ -75,7 +83,6 @@ inline FEDZSChannelUnpacker& FEDZSChannelUnpacker::operator ++ ()
   } else {
     currentOffset_++;
     if (hasData(2)) {
-      const uint8_t oldStrip = currentStrip_;
       readNewClusterInfo();
     }
   }

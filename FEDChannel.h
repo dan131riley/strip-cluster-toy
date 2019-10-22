@@ -27,3 +27,10 @@ private:
 inline FEDChannel::FEDChannel(const uint8_t* const data, const size_t offset) : data_(data), offset_(offset) {
   length_ = (data_[(offset_) ^ 7] + (data_[(offset_ + 1) ^ 7] << 8));
 }
+
+inline FEDChannel::FEDChannel(const uint8_t*const data, const size_t offset, const uint16_t length)
+  : data_(data),
+    offset_(offset),
+    length_(length)
+{
+}
