@@ -175,12 +175,20 @@ int main(int argc, char** argv)
   auto conditions = std::make_unique<SiStripConditions>("stripcond.bin");
 
   std::ifstream datafile(datafilename, std::ios::in | std::ios::binary);
-  FEDRawData rawData;
-
   datafile.seekg(sizeof(size_t)); // skip initial event mark
+
+  FEDRawData rawData;
+  std::vector<FEDRawData> fedRawDatav;
+  std::vector<detId_t> fedIdv;
+
+  fedRawDatav.reserve(SiStripConditions::kFedCount);
+  fedIdv.reserve(SiStripConditions::kFedCount);
 
   while (!datafile.eof()) {
     size_t size = 0;
+    fedRawDatav.clear();
+    fedIdv.clear();
+
     while (datafile.read((char*) &size, sizeof(size)).gcount() == sizeof(size) && size != std::numeric_limits<size_t>::max()) {
       int fedId = 0;
       datafile.read((char*) &fedId, sizeof(fedId));
@@ -189,6 +197,16 @@ int main(int argc, char** argv)
 #endif
       rawData.resize(size);
       datafile.read((char*) rawData.data(), size);
+
+      fedIdv.push_back(fedId);
+      auto addr = rawData.data();
+      fedRawDatav.push_back(std::move(rawData));
+      assert(fedRawDatav.back().data() == addr);
+    }
+    
+    for(size_t i = 0; i < fedIdv.size(); ++i) {
+      auto fedId = fedIdv[i];
+      const auto& rawData = fedRawDatav[i];
       FEDBuffer buffer(rawData.data(),rawData.size());
 
       const FEDReadoutMode mode = buffer.readoutMode();

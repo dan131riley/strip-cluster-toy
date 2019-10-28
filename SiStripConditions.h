@@ -38,7 +38,7 @@ class SiStripConditions {
 public:
   static constexpr int kStripsPerChannel = ChannelConditions::kStripsPerChannel;
   static constexpr int kFedFirst = 50;
-  static constexpr int kFedLast = 430;
+  static constexpr int kFedLast = 489;
   static constexpr int kFedCount = kFedLast - kFedFirst + 1;
   static constexpr int kChannelCount = 96;
 

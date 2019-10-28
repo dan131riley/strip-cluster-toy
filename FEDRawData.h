@@ -31,6 +31,10 @@ public:
 
   /// Copy constructor
   FEDRawData(const FEDRawData &);
+  FEDRawData(FEDRawData &&arg) : data_(std::move(arg.data_)) {}
+  
+  /// assignment
+  FEDRawData& operator=(FEDRawData&& other) { data_ = std::move(other.data_); return *this; }
 
   /// Dtor
   ~FEDRawData();

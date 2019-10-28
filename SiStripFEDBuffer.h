@@ -72,6 +72,7 @@ public:
   FEDBuffer(const uint8_t* fedBuffer, const uint16_t fedBufferSize, const bool allowBadBuffer = false);
   ~FEDBuffer() {}
 
+  const uint8_t* data() const { return orderedBuffer_; }
   const uint8_t* getPointerToDataAfterTrackerSpecialHeader() const { return orderedBuffer_ + 16; }
   const uint8_t* getPointerToByteAfterEndOfPayload() const { return orderedBuffer_+bufferSize_-8; }
 
