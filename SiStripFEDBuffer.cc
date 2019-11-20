@@ -45,6 +45,17 @@ FEDBuffer::FEDBuffer(const uint8_t* fedBuffer, const uint16_t fedBufferSize, con
   findChannels();
 }
 
+FEDBuffer::FEDBuffer(FEDBuffer&& arg)
+  : feHeader_(std::move(arg.feHeader_)),
+    payloadPointer_(arg.payloadPointer_),
+    payloadLength_(arg.payloadLength_),
+    channels_(std::move(arg.channels_)),
+    orderedBuffer_(arg.orderedBuffer_),
+    bufferSize_(arg.bufferSize_),
+    validChannels_(arg.validChannels_),
+    specialHeader_(arg.specialHeader_),
+    fePresent_(arg.fePresent_) {}
+
 void FEDBuffer::findChannels()
 {
   uint16_t offsetBeginningOfChannel = 0;

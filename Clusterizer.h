@@ -14,14 +14,15 @@ public:
   // state of detID
   class Det {
   public:
-    Det(const SiStripConditions* conditions, fedId_t fedID)
-      : conditions_(conditions), fedID_(fedID) {}
+    Det(const SiStripConditions* conditions, fedId_t fedID, fedCh_t fedCh)
+      : conditions_(conditions), fedID_(fedID), fedCh_(fedCh) {}
     float noise(const uint16_t& strip) const { return (*conditions_)(fedID_, fedCh_).noise(strip); }
     float gain(const uint16_t& strip)  const { return (*conditions_)(fedID_, fedCh_).gain(strip); }
     bool bad(const uint16_t& strip)    const { return (*conditions_)(fedID_, fedCh_).bad(strip); }
     bool allBadBetween(uint16_t L, const uint16_t& R) const { while( ++L < R  &&  bad(L)) {}; return L == R; }
     detId_t id() const { return (*conditions_)(fedID_, fedCh_).detID(); }
     void setFedCh(fedCh_t fedCh) { fedCh_ = fedCh; }
+    void setFedId(fedId_t fedID) { fedID_ = fedID; }
   private:
     const SiStripConditions* conditions_;
     fedId_t fedID_;

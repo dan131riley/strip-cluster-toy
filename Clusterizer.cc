@@ -74,7 +74,7 @@ Clusterizer::appendBadNeighbors(State & state) const {
 
 Clusterizer::Det
 Clusterizer::stripByStripBegin(fedId_t fedId) const {
-  return Det(conditions_, fedId);
+  return Det(conditions_, fedId, 0);
 }
 
 void

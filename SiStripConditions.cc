@@ -1,12 +1,13 @@
 #include "SiStripConditions.h"
 
 #include <fstream>
+#include <iostream>
 
 struct FileChannel {
   fedId_t fedId_;
   detId_t  detId_;
   fedCh_t fedCh_;
-  uint16_t ipair_;
+  APVPair_t ipair_;
   float noise_[ChannelConditions::kStripsPerChannel];
   float gain_[ChannelConditions::kStripsPerChannel];
   bool bad_[ChannelConditions::kStripsPerChannel];
@@ -23,6 +24,8 @@ SiStripConditions::SiStripConditions(const std::string& file)
     auto fch = fc.fedCh_;
     detID_[fedi][fch] = fc.detId_;
     iPair_[fedi][fch] = fc.ipair_;
+    detToFeds_.emplace_back(fc.detId_, fc.ipair_, fc.fedId_, fc.fedCh_);
+
     auto choff = fch*kStripsPerChannel;
     for (auto i = 0; i < ChannelConditions::kStripsPerChannel; ++i, ++choff) {
       noise_[fedi][choff] = fc.noise_[i];
@@ -30,6 +33,15 @@ SiStripConditions::SiStripConditions(const std::string& file)
       bad_[fedi][choff] = fc.bad_[i];
     }
   }
+  std::sort(detToFeds_.begin(), detToFeds_.end(),
+    [](const DetToFed& a, const DetToFed& b){ 
+      return a.detID() < b.detID() || (a.detID() == b.detID() && a.pair() < b.pair());
+    });
+#ifdef DBGPRINT
+  for (const auto& d : detToFeds_) {
+    std::cout << d.detID() << ":" << d.pair() << " --> " << d.fedID() << ":" << (uint16_t) d.fedCh() << std::endl;
+  }
+#endif
 }
 
 const ChannelConditions SiStripConditions::operator()(fedId_t fed, fedCh_t channel) const

@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <cstddef>
+#include <array>
 
 #include "FEDChannel.h"
 
@@ -72,6 +73,9 @@ public:
   FEDBuffer(const uint8_t* fedBuffer, const uint16_t fedBufferSize, const bool allowBadBuffer = false);
   ~FEDBuffer() {}
 
+  // move constructor
+  FEDBuffer(FEDBuffer&& arg);
+
   const uint8_t* data() const { return orderedBuffer_; }
   const uint8_t* getPointerToDataAfterTrackerSpecialHeader() const { return orderedBuffer_ + 16; }
   const uint8_t* getPointerToByteAfterEndOfPayload() const { return orderedBuffer_+bufferSize_-8; }
@@ -95,5 +99,5 @@ private:
   const size_t bufferSize_;
   uint8_t validChannels_;
   TrackerSpecialHeader specialHeader_;
-  bool fePresent_[FEUNITS_PER_FED];
+  std::array<bool, FEUNITS_PER_FED> fePresent_;
 };

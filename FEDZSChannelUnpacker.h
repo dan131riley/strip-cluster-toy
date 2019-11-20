@@ -18,17 +18,17 @@ private:
   FEDZSChannelUnpacker(const uint8_t* payload, const uint16_t channelPayloadOffset, const int16_t channelPayloadLength);
   void readNewClusterInfo();
   const uint8_t* data_;
-  uint16_t currentOffset_;
+  size_t currentOffset_;
+  size_t channelPayloadOffset_;
+  uint16_t channelPayloadLength_;
   uint8_t currentStrip_;
   uint8_t valuesLeftInCluster_;
-  uint16_t channelPayloadOffset_;
-  uint16_t channelPayloadLength_;
 };
 
 inline void FEDZSChannelUnpacker::readNewClusterInfo()
 {
-  currentStrip_ = data_[(currentOffset_++)^7];
-  valuesLeftInCluster_ = data_[(currentOffset_++)^7]-1;
+  currentStrip_ = data_[(currentOffset_++)];
+  valuesLeftInCluster_ = data_[(currentOffset_++)]-1;
   //std::cout << "New group offset " << currentOffset_ << " length " << (int) valuesLeftInCluster_+1 << " first strip " << (int) currentStrip_ << std::endl;
 }
 
@@ -37,10 +37,10 @@ inline
 FEDZSChannelUnpacker::FEDZSChannelUnpacker(const uint8_t* payload, const uint16_t channelPayloadOffset, const int16_t channelPayloadLength)
 : data_(payload),
   currentOffset_(channelPayloadOffset),
-  currentStrip_(0),
-  valuesLeftInCluster_(0),
   channelPayloadOffset_(channelPayloadOffset),
-  channelPayloadLength_(channelPayloadLength)
+  channelPayloadLength_(channelPayloadLength),
+  currentStrip_(0),
+  valuesLeftInCluster_(0)
 {
   if (channelPayloadLength_) readNewClusterInfo();
 }
@@ -66,7 +66,7 @@ inline uint8_t FEDZSChannelUnpacker::sampleNumber() const
 
 inline uint8_t FEDZSChannelUnpacker::adc() const
 {
-  return data_[currentOffset_^7];
+  return data_[currentOffset_];
 }
 
 inline bool FEDZSChannelUnpacker::hasData(uint16_t extra) const

@@ -9,6 +9,17 @@
 
 #define DBGPRINT 1
 
+struct ChannelLoc {
+public:
+  ChannelLoc(size_t det, size_t fed, size_t offset, uint16_t length)
+    : detToFedIndex_(det), fedIndex_(fed), offset_(offset), length_(length) {}
+
+  size_t detToFedIndex_; // index in detToFeds
+  size_t fedIndex_;      // index in fedRawDatav
+  size_t offset_;        // global offset in alldata
+  size_t length_;        // length of channel data
+};
+
 class StripByStripAdder {
 public:
   typedef std::output_iterator_tag iterator_category;
@@ -38,43 +49,55 @@ private:
 };
 
 void
-testUnpackZS(int fedId, const FEDBuffer& buffer, const SiStripConditions* conditions)
+testUnpackZS(const std::vector<uint8_t>& alldata, 
+             const SiStripConditions* conditions, 
+             const std::vector<ChannelLoc>& chanlocs,
+             const FEDReadoutMode mode)
 {
-  std::vector<uint16_t> stripId(buffer.bufferSize());
+  std::vector<uint16_t> stripId(alldata.size());
+  const auto& detmap = conditions->detToFeds();
 
-  const uint16_t headerlen = buffer.readoutMode() == READOUT_MODE_ZERO_SUPPRESSED ? 7 : 2;
+  const uint16_t headerlen = mode == READOUT_MODE_ZERO_SUPPRESSED ? 7 : 2;
 
   //#pragma omp for
-  for (auto fedCh = 0; fedCh < buffer.validChannels(); ++fedCh) {
-    const auto& channel = buffer.channel(fedCh);
+  for(size_t i = 0; i < detmap.size(); ++i) {
+    const auto& detp = detmap[i];
+    const auto& chaninfo = chanlocs[i];
+
+    const auto channel = FEDChannel(alldata.data(), chaninfo.offset_, chaninfo.length_);
 
     if (channel.length() > 0) {
       const uint8_t* data = channel.data();
-      uint16_t payloadOffset = channel.offset()+headerlen;
-      uint16_t offset = payloadOffset;
-      uint16_t payloadLength = channel.length()-headerlen;
+      auto payloadOffset = channel.offset()+headerlen;
+      auto offset = payloadOffset;
+      auto payloadLength = channel.length()-headerlen;
+
+      auto fedId = detp.fedID();
+      auto fedCh = detp.fedCh();
 
   #ifdef DBGPRINT
-      auto ipair = (*conditions)(fedId, fedCh).iPair();
-      auto detid = (*conditions)(fedId, fedCh).detID();
-      std::cout << "FED " << fedId << " channel " << fedCh << " det:pair " << detid << ":" << ipair << std::endl;
+      auto detid = detp.detID();
+      auto ipair = detp.pair();
+      std::cout << "FED " << fedId << " channel " << (int) fedCh << " det:pair " << detid << ":" << ipair << std::endl;
       std::cout << "Offset " << payloadOffset << " Length " << payloadLength << std::endl;
   #endif
 
       for (auto i = channel.offset(); i < channel.offset() + headerlen; ++i) {
-        stripId[i^7] = invStrip;
+        stripId[i] = invStrip;
       }
 
       while (offset < payloadOffset+payloadLength) {
-        stripId[offset^7] = invStrip;
-        uint8_t stripIndex = data[(offset++)^7];
-        stripId[offset^7] = invStrip;
-        uint8_t groupLength = data[(offset++)^7];
+        stripId[offset] = invStrip;
+        uint8_t stripIndex = data[(offset++)];
+        stripId[offset] = invStrip;
+        uint8_t groupLength = data[(offset++)];
         for (auto i = 0; i < groupLength; ++i, ++offset) {
-          // auto adc = data[offset^7];
-          stripId[offset^7] = stripIndex + i;
+          // auto adc = data[offset];
+          stripId[offset] = stripIndex + i;
         }
       }
+    } else {
+      std::cout << " Index " << i << " length " << channel.length() << std::endl;
     }
   }
 }
@@ -119,18 +142,32 @@ void printClusters(detId_t idet, const SiStripClusters& clusters)
 }
 
 SiStripClusterMap
-fillClusters(int fedId, const SiStripConditions* conditions, const std::vector<FEDChannel>& channels, const FEDReadoutMode mode)
+fillClusters(const std::vector<uint8_t>& alldata, 
+             const SiStripConditions* conditions, 
+             const std::vector<ChannelLoc>& chanlocs,
+             const FEDReadoutMode mode)
 {
   Clusterizer clusterizer(conditions);
   Clusterizer::State state;
   SiStripClusters out;
   SiStripClusterMap clusters;
-  detId_t prevDet = invDet;
-  Clusterizer::Det det(conditions, fedId);
+  auto prevDet = invDet;
+  Clusterizer::Det det(conditions, invFed, 0);
+  const auto& detmap = conditions->detToFeds();
 
-  for (auto fedCh = 0; fedCh < channels.size(); ++fedCh) {
-    auto ipair = (*conditions)(fedId, fedCh).iPair();
-    auto detid = (*conditions)(fedId, fedCh).detID();
+  for(size_t i = 0; i < detmap.size(); ++i) {
+    const auto& detp = detmap[i];
+    const auto& chaninfo = chanlocs[i];
+
+    const auto chan = FEDChannel(alldata.data(), chaninfo.offset_, chaninfo.length_);
+
+    auto fedId = detp.fedID();
+    auto fedCh = detp.fedCh();
+    auto detid = detp.detID();
+    auto ipair = detp.pair();
+
+    assert(ipair == (*conditions)(fedId, fedCh).iPair());
+    assert(detid == (*conditions)(fedId, fedCh).detID());;
 
     if (detid != prevDet) {
 #ifdef DBGPRINT
@@ -145,9 +182,8 @@ fillClusters(int fedId, const SiStripConditions* conditions, const std::vector<F
     }
 
     det.setFedCh(fedCh);
-    const auto& chan = channels[fedCh];
 #ifdef DBGPRINT
-    std::cout << "FED " << fedId << " channel " << fedCh << " detid " << detid << " ipair " << ipair 
+    std::cout << "FED " << fedId << " channel " << (int) fedCh << " detid " << detid << " ipair " << ipair 
               << " len:off " << chan.length() << ":" << chan.offset() << std::endl;
 #endif
 
@@ -172,7 +208,7 @@ int main(int argc, char** argv)
   }
   std::cout << "Reading " << datafilename << "+" << condfilename << std::endl;
 
-  auto conditions = std::make_unique<SiStripConditions>("stripcond.bin");
+  auto conditions = std::make_unique<SiStripConditions>(condfilename);
 
   std::ifstream datafile(datafilename, std::ios::in | std::ios::binary);
   datafile.seekg(sizeof(size_t)); // skip initial event mark
@@ -180,15 +216,29 @@ int main(int argc, char** argv)
   FEDRawData rawData;
   std::vector<FEDRawData> fedRawDatav;
   std::vector<detId_t> fedIdv;
+  std::vector<FEDBuffer> fedBufferv;
+  std::vector<fedId_t> fedIndex(SiStripConditions::kFedCount);
+  std::vector<ChannelLoc> chanlocs;
+  std::vector<uint8_t> alldata;
 
   fedRawDatav.reserve(SiStripConditions::kFedCount);
   fedIdv.reserve(SiStripConditions::kFedCount);
+  fedBufferv.reserve(SiStripConditions::kFedCount);
+  chanlocs.reserve(conditions->detToFeds().size());
 
   while (!datafile.eof()) {
     size_t size = 0;
+    size_t totalSize = 0;
+    FEDReadoutMode mode;
+
     fedRawDatav.clear();
     fedIdv.clear();
+    fedIndex.clear();
+    fedIndex.resize(SiStripConditions::kFedCount, invFed);
+    chanlocs.clear();
+    alldata.clear();
 
+    // read in the raw data
     while (datafile.read((char*) &size, sizeof(size)).gcount() == sizeof(size) && size != std::numeric_limits<size_t>::max()) {
       int fedId = 0;
       datafile.read((char*) &fedId, sizeof(fedId));
@@ -198,26 +248,73 @@ int main(int argc, char** argv)
       rawData.resize(size);
       datafile.read((char*) rawData.data(), size);
 
+      fedIndex[fedId-SiStripConditions::kFedFirst] = fedIdv.size();
       fedIdv.push_back(fedId);
       auto addr = rawData.data();
       fedRawDatav.push_back(std::move(rawData));
-      assert(fedRawDatav.back().data() == addr);
+      
+      const auto& rd = fedRawDatav.back();
+      assert(rd.data() == addr);
+      fedBufferv.emplace_back(rd.data(), rd.size());
+
+      if (fedBufferv.size() == 1) {
+        mode = fedBufferv.back().readoutMode();
+      } else {
+        assert(fedBufferv.back().readoutMode() == mode);
+      }
+
+      totalSize += size;
     }
-    
-    for(size_t i = 0; i < fedIdv.size(); ++i) {
-      auto fedId = fedIdv[i];
-      const auto& rawData = fedRawDatav[i];
-      FEDBuffer buffer(rawData.data(),rawData.size());
 
-      const FEDReadoutMode mode = buffer.readoutMode();
+    const auto& detmap = conditions->detToFeds();
+    size_t offset = 0;
 
-      testUnpackZS(fedId, buffer, conditions.get());
-      auto clusters = fillClusters(fedId, conditions.get(), buffer.channels(), mode);
+    // iterate over the detector in DetID/APVPair order
+    // mapping out where the data are
+    for(size_t i = 0; i < detmap.size(); ++i) {
+      const auto& detp = detmap[i];
 
-      if (fedId == 50) {
-        const detId_t idet = 369120277;
-        printClusters(idet, clusters[idet]);
+      auto fedId = detp.fedID();
+      auto fedi = fedIndex[fedId-SiStripConditions::kFedFirst];
+      if (fedi != invFed) {
+        const auto& buffer = fedBufferv[fedi];
+        const auto& channel = buffer.channel(detp.fedCh());
+        chanlocs.emplace_back(i, fedi, offset, channel.length());
+        offset += channel.length();
+      } else {
+        std::cout << "Missing fed " << fedi << " for detID " << detp.fedID() << std::endl;
       }
     }
+
+    alldata.resize(offset); // resize to the amount of data
+
+    // iterate over the detector in DetID/APVPair order
+    // copying the data into the alldata array
+    for(size_t i = 0; i < detmap.size(); ++i) {
+      const auto& detp = detmap[i];
+      const auto& chaninfo = chanlocs[i];
+
+      auto aoff = chaninfo.offset_;
+      auto fedId = detp.fedID();
+      auto fedi = fedIndex[fedId-SiStripConditions::kFedFirst];
+
+      if (fedi != invFed) {
+        const auto& buffer = fedBufferv[fedi];
+        const auto& channel = buffer.channel(detp.fedCh());
+
+        const auto data = channel.data();
+        const auto choff = channel.offset();
+
+        for (auto k = 0; k < channel.length(); ++k) {
+          alldata[aoff++] = data[(choff+k)^7];
+        }
+      }
+    }
+
+    testUnpackZS(alldata, conditions.get(), chanlocs, mode);
+    auto clusters = fillClusters(alldata, conditions.get(), chanlocs, mode);
+
+    const detId_t idet = 369120277;
+    printClusters(idet, clusters[idet]);
   }
 }
