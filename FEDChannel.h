@@ -5,35 +5,32 @@
 #include "Clusterizer.h"
 
 //holds information about position of a channel in the buffer for use by unpacker
-class FEDChannel
-{
+class FEDChannel {
 public:
-  //FEDChannel(const uint8_t*const data, const size_t offset, const uint16_t length, fedId_t feded, fedCh_t fedch);
-  FEDChannel() {}
-  FEDChannel(std::ifstream& file);
+  FEDChannel(const uint8_t* const data, const size_t offset, const uint16_t length);
+  //gets length from first 2 bytes (assuming normal FED channel)
+  FEDChannel(const uint8_t* const data, const size_t offset);
   uint16_t length() const { return length_; }
-  const uint8_t* data() const { return data_.get(); }
+  const uint8_t* data() const { return data_; }
   size_t offset() const { return offset_; }
+  uint16_t cmMedian(const uint8_t apvIndex) const;
   //third byte of channel data for normal FED channels
-  uint8_t packetCode() const { return data_[(offset_+2)^7]; }
-  fedId_t fedId() const { return fedid_; }
-  fedCh_t fedCh() const { return fedch_; }
-  uint16_t iPair() const { return ipair_; }
+  uint8_t packetCode() const;
+
 private:
-  std::unique_ptr<uint8_t[]> data_;
+  friend class FEDBuffer;
+  const uint8_t* data_;
   size_t offset_;
   uint16_t length_;
-  uint16_t ipair_;
-  fedId_t fedid_;
-  fedCh_t fedch_;
 };
 
-//inline FEDChannel::FEDChannel(const uint8_t* data, const size_t offset, const uint16_t length, fedId_t feded, fedCh_t fedch)
-//: data_(data),
-//  offset_(offset),
-//  length_(length),
-//  fedid_(fedid),
-//  fedch_(frech)
-//{}
+inline FEDChannel::FEDChannel(const uint8_t* const data, const size_t offset) : data_(data), offset_(offset) {
+  length_ = (data_[(offset_) ^ 7] + (data_[(offset_ + 1) ^ 7] << 8));
+}
 
-using FEDSet = std::map<detId_t, std::vector<FEDChannel>>;
+inline FEDChannel::FEDChannel(const uint8_t*const data, const size_t offset, const uint16_t length)
+  : data_(data),
+    offset_(offset),
+    length_(length)
+{
+}
