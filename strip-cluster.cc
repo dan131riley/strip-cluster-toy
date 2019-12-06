@@ -7,7 +7,7 @@
 #include "SiStripFEDBuffer.h"
 #include "FEDZSChannelUnpacker.h"
 
-#define DBGPRINT 1
+//#define DBGPRINT 1
 
 struct ChannelLoc {
 public:
@@ -61,9 +61,7 @@ testUnpackZS(const std::vector<uint8_t>& alldata,
 
 #pragma omp for
   for(size_t i = 0; i < detmap.size(); ++i) {
-    const auto& detp = detmap[i];
     const auto& chaninfo = chanlocs[i];
-
     const auto channel = FEDChannel(alldata.data(), chaninfo.offset_, chaninfo.length_);
 
     if (channel.length() > 0) {
@@ -72,10 +70,10 @@ testUnpackZS(const std::vector<uint8_t>& alldata,
       const auto payloadLength = channel.length()-headerlen;
       auto offset = payloadOffset;
 
+  #ifdef DBGPRINT
+      const auto& detp = detmap[i];
       const auto fedId = detp.fedID();
       const auto fedCh = detp.fedCh();
-
-  #ifdef DBGPRINT
       const auto detid = detp.detID();
       const auto ipair = detp.pair();
       std::cout << "FED " << fedId << " channel " << (int) fedCh << " det:pair " << detid << ":" << ipair << std::endl;
@@ -96,9 +94,12 @@ testUnpackZS(const std::vector<uint8_t>& alldata,
           stripId[offset] = stripIndex + i;
         }
       }
-    } else {
+    }
+#ifdef DBGPRINT
+    else {
       std::cout << " Index " << i << " length " << channel.length() << std::endl;
     }
+#endif
   }
 }
 
