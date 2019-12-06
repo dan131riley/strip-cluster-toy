@@ -59,7 +59,7 @@ testUnpackZS(const std::vector<uint8_t>& alldata,
 
   const uint16_t headerlen = mode == READOUT_MODE_ZERO_SUPPRESSED ? 7 : 2;
 
-  //#pragma omp for
+#pragma omp for
   for(size_t i = 0; i < detmap.size(); ++i) {
     const auto& detp = detmap[i];
     const auto& chaninfo = chanlocs[i];
@@ -68,16 +68,16 @@ testUnpackZS(const std::vector<uint8_t>& alldata,
 
     if (channel.length() > 0) {
       const uint8_t* data = channel.data();
-      auto payloadOffset = channel.offset()+headerlen;
+      const auto payloadOffset = channel.offset()+headerlen;
+      const auto payloadLength = channel.length()-headerlen;
       auto offset = payloadOffset;
-      auto payloadLength = channel.length()-headerlen;
 
-      auto fedId = detp.fedID();
-      auto fedCh = detp.fedCh();
+      const auto fedId = detp.fedID();
+      const auto fedCh = detp.fedCh();
 
   #ifdef DBGPRINT
-      auto detid = detp.detID();
-      auto ipair = detp.pair();
+      const auto detid = detp.detID();
+      const auto ipair = detp.pair();
       std::cout << "FED " << fedId << " channel " << (int) fedCh << " det:pair " << detid << ":" << ipair << std::endl;
       std::cout << "Offset " << payloadOffset << " Length " << payloadLength << std::endl;
   #endif
@@ -88,9 +88,9 @@ testUnpackZS(const std::vector<uint8_t>& alldata,
 
       while (offset < payloadOffset+payloadLength) {
         stripId[offset] = invStrip;
-        uint8_t stripIndex = data[(offset++)];
+        const auto stripIndex = data[(offset++)];
         stripId[offset] = invStrip;
-        uint8_t groupLength = data[(offset++)];
+        const auto groupLength = data[(offset++)];
         for (auto i = 0; i < groupLength; ++i, ++offset) {
           // auto adc = data[offset];
           stripId[offset] = stripIndex + i;
@@ -286,17 +286,21 @@ int main(int argc, char** argv)
       }
     }
 
+    std::cout << "Total size " << totalSize << " channel sum " << offset << std::endl;
     alldata.resize(offset); // resize to the amount of data
 
     // iterate over the detector in DetID/APVPair order
     // copying the data into the alldata array
+    // This could be combined with the previous loop, but
+    // this loop can be parallelized, previous is serial
+#pragma omp for
     for(size_t i = 0; i < detmap.size(); ++i) {
       const auto& detp = detmap[i];
       const auto& chaninfo = chanlocs[i];
+      const auto fedId = detp.fedID();
+      const auto fedi = fedIndex[fedId-SiStripConditions::kFedFirst];
 
       auto aoff = chaninfo.offset_;
-      auto fedId = detp.fedID();
-      auto fedi = fedIndex[fedId-SiStripConditions::kFedFirst];
 
       if (fedi != invFed) {
         const auto& buffer = fedBufferv[fedi];
