@@ -1,6 +1,7 @@
 #include <fstream>
 #include <iostream>
 #include <algorithm>
+#include <cassert>
 
 #include "Clusterizer.h"
 #include "FEDRawData.h"
