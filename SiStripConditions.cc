@@ -2,6 +2,7 @@
 
 #include <fstream>
 #include <iostream>
+#include <algorithm>
 
 struct FileChannel {
   fedId_t fedId_;
