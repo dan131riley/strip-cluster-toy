@@ -52,7 +52,9 @@ private:
   const bool* bad_;
 };
 
-class SiStripConditions {
+class SiStripConditionsGPU;
+
+class SiStripConditionsBase {
 public:
   static constexpr int kStripsPerChannel = ChannelConditions::kStripsPerChannel;
   static constexpr int kFedFirst = 50;
@@ -60,18 +62,26 @@ public:
   static constexpr int kFedCount = kFedLast - kFedFirst + 1;
   static constexpr int kChannelCount = 96;
 
-  SiStripConditions(const std::string& file);
-  SiStripConditions() {}
+  SiStripConditionsBase() {}
 
   const ChannelConditions operator()(fedId_t fed, fedCh_t channel) const;
-  const DetToFeds& detToFeds() const { return detToFeds_; }
+  SiStripConditionsGPU* toGPU() const;
 
-private:
+protected:
   float noise_[kFedCount][kChannelCount*kStripsPerChannel];
   float gain_[kFedCount][kChannelCount*kStripsPerChannel];
   bool bad_[kFedCount][kChannelCount*kStripsPerChannel];
   detId_t detID_[kFedCount][kChannelCount];
   APVPair_t iPair_[kFedCount][kChannelCount];
+};
+
+class SiStripConditions : public SiStripConditionsBase {
+public:
+  SiStripConditions(const std::string& file);
+  const DetToFeds& detToFeds() const { return detToFeds_; }
+private:
   DetToFeds detToFeds_;
 };
 
+class SiStripConditionsGPU : public SiStripConditionsBase {
+};

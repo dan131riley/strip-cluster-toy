@@ -2,6 +2,12 @@
 #include <iostream>
 #include <algorithm>
 #include <cassert>
+#include <functional>
+
+#ifdef USE_GPU
+#include <cuda_runtime.h>
+#include "cuda_rt_call.h"
+#endif
 
 #include "Clusterizer.h"
 #include "FEDRawData.h"
@@ -9,17 +15,11 @@
 #include "FEDZSChannelUnpacker.h"
 
 //#define DBGPRINT 1
+#define ALIGN 16
+#if defined(ALIGN)
+static constexpr auto kAlign = ALIGN;
+#endif
 
-struct ChannelLoc {
-public:
-  ChannelLoc(size_t det, size_t fed, size_t offset, uint16_t length)
-    : detToFedIndex_(det), fedIndex_(fed), offset_(offset), length_(length) {}
-
-  size_t detToFedIndex_; // index in detToFeds
-  size_t fedIndex_;      // index in fedRawDatav
-  size_t offset_;        // global offset in alldata
-  size_t length_;        // length of channel data
-};
 
 class StripByStripAdder {
 public:
@@ -52,18 +52,16 @@ private:
 void
 testUnpackZS(const std::vector<uint8_t>& alldata, 
              const SiStripConditions* conditions, 
-             const std::vector<ChannelLoc>& chanlocs,
+             const ChannelLocs& chanlocs,
              const FEDReadoutMode mode)
 {
   std::vector<uint16_t> stripId(alldata.size());
-  const auto& detmap = conditions->detToFeds();
 
   const uint16_t headerlen = mode == READOUT_MODE_ZERO_SUPPRESSED ? 7 : 2;
 
 #pragma omp for
-  for(size_t i = 0; i < detmap.size(); ++i) {
-    const auto& chaninfo = chanlocs[i];
-    const auto channel = FEDChannel(alldata.data(), chaninfo.offset_, chaninfo.length_);
+  for(size_t i = 0; i < chanlocs.size(); ++i) {
+    const auto channel = FEDChannel(alldata.data(), chanlocs.offset(i), chanlocs.length(i));
 
     if (channel.length() > 0) {
       const uint8_t* data = channel.data();
@@ -71,7 +69,8 @@ testUnpackZS(const std::vector<uint8_t>& alldata,
       const auto payloadLength = channel.length()-headerlen;
       auto offset = payloadOffset;
 
-  #ifdef DBGPRINT
+#if defined(DBGPRINT)
+      const auto& detmap = conditions->detToFeds();
       const auto& detp = detmap[i];
       const auto fedId = detp.fedID();
       const auto fedCh = detp.fedCh();
@@ -79,7 +78,7 @@ testUnpackZS(const std::vector<uint8_t>& alldata,
       const auto ipair = detp.pair();
       std::cout << "FED " << fedId << " channel " << (int) fedCh << " det:pair " << detid << ":" << ipair << std::endl;
       std::cout << "Offset " << payloadOffset << " Length " << payloadLength << std::endl;
-  #endif
+#endif
 
       for (auto i = channel.offset(); i < channel.offset() + headerlen; ++i) {
         stripId[i] = invStrip;
@@ -96,7 +95,7 @@ testUnpackZS(const std::vector<uint8_t>& alldata,
         }
       }
     }
-#ifdef DBGPRINT
+#if defined(DBGPRINT)
     else {
       std::cout << " Index " << i << " length " << channel.length() << std::endl;
     }
@@ -146,7 +145,7 @@ void printClusters(detId_t idet, const SiStripClusters& clusters)
 SiStripClusterMap
 fillClusters(const std::vector<uint8_t>& alldata, 
              const SiStripConditions* conditions, 
-             const std::vector<ChannelLoc>& chanlocs,
+             const ChannelLocs& chanlocs,
              const FEDReadoutMode mode)
 {
   Clusterizer clusterizer(conditions);
@@ -155,24 +154,17 @@ fillClusters(const std::vector<uint8_t>& alldata,
   SiStripClusterMap clusters;
   auto prevDet = invDet;
   Clusterizer::Det det(conditions, invFed, 0);
-  const auto& detmap = conditions->detToFeds();
 
-  for(size_t i = 0; i < detmap.size(); ++i) {
-    const auto& detp = detmap[i];
-    const auto& chaninfo = chanlocs[i];
+  for(size_t i = 0; i < chanlocs.size(); ++i) {
+    const auto chan = FEDChannel(alldata.data(), chanlocs.offset(i), chanlocs.length(i));;
 
-    const auto chan = FEDChannel(alldata.data(), chaninfo.offset_, chaninfo.length_);
-
-    auto fedId = detp.fedID();
-    auto fedCh = detp.fedCh();
-    auto detid = detp.detID();
-    auto ipair = detp.pair();
-
-    assert(ipair == (*conditions)(fedId, fedCh).iPair());
-    assert(detid == (*conditions)(fedId, fedCh).detID());;
+    auto fedId = chanlocs.fedID(i);
+    auto fedCh = chanlocs.fedCh(i);
+    auto detid = (*conditions)(fedId, fedCh).detID();
+    auto ipair = (*conditions)(fedId, fedCh).iPair();
 
     if (detid != prevDet) {
-#ifdef DBGPRINT
+#if defined(DBGPRINT)
       std::cout << "DetID " << prevDet << " clusters " << out.size() << std::endl;
 #endif
       if (out.size() > 0) {
@@ -184,7 +176,7 @@ fillClusters(const std::vector<uint8_t>& alldata,
     }
 
     det.setFedCh(fedCh);
-#ifdef DBGPRINT
+#if defined(DBGPRINT)
     std::cout << "FED " << fedId << " channel " << (int) fedCh << " detid " << detid << " ipair " << ipair 
               << " len:off " << chan.length() << ":" << chan.offset() << std::endl;
 #endif
@@ -211,6 +203,10 @@ int main(int argc, char** argv)
   std::cout << "Reading " << datafilename << "+" << condfilename << std::endl;
 
   auto conditions = std::make_unique<SiStripConditions>(condfilename);
+#ifdef USE_GPU
+  std::unique_ptr<SiStripConditionsGPU, std::function<void(SiStripConditionsGPU*)>>
+    condGPU(conditions->toGPU(), [](SiStripConditionsGPU* p) { cudaFree(p); });
+#endif
 
   std::ifstream datafile(datafilename, std::ios::in | std::ios::binary);
   datafile.seekg(sizeof(size_t)); // skip initial event mark
@@ -220,31 +216,40 @@ int main(int argc, char** argv)
   std::vector<detId_t> fedIdv;
   std::vector<FEDBuffer> fedBufferv;
   std::vector<fedId_t> fedIndex(SiStripConditions::kFedCount);
-  std::vector<ChannelLoc> chanlocs;
   std::vector<uint8_t> alldata;
+
+  ChannelLocs chanlocs(conditions->detToFeds().size());
 
   fedRawDatav.reserve(SiStripConditions::kFedCount);
   fedIdv.reserve(SiStripConditions::kFedCount);
   fedBufferv.reserve(SiStripConditions::kFedCount);
-  chanlocs.reserve(conditions->detToFeds().size());
+
+#ifdef USE_GPU
+  std::vector<uint8_t*> fedRawDataGPU;
+  std::vector<uint8_t*> inputGPU(conditions->detToFeds().size());
+
+  fedRawDataGPU.reserve(SiStripConditions::kFedCount);
+#endif
 
   while (!datafile.eof()) {
     size_t size = 0;
     size_t totalSize = 0;
     FEDReadoutMode mode;
 
+#ifdef USE_GPU
+    fedRawDataGPU.clear();
+#endif
     fedRawDatav.clear();
     fedIdv.clear();
     fedIndex.clear();
     fedIndex.resize(SiStripConditions::kFedCount, invFed);
-    chanlocs.clear();
     alldata.clear();
 
     // read in the raw data
     while (datafile.read((char*) &size, sizeof(size)).gcount() == sizeof(size) && size != std::numeric_limits<size_t>::max()) {
       int fedId = 0;
       datafile.read((char*) &fedId, sizeof(fedId));
-#ifdef DBGPRINT
+#if defined(DBGPRINT)
       std::cout << "Reading FEDRawData ID " << fedId << " size " << size << std::endl;
 #endif
       rawData.resize(size);
@@ -266,6 +271,12 @@ int main(int argc, char** argv)
       }
 
       totalSize += size;
+#ifdef USE_GPU
+      uint8_t* tmp;
+      CUDA_RT_CALL(cudaMalloc((void**) &tmp, sizeof(uint8_t)*size));
+      CUDA_RT_CALL(cudaMemcpyAsync(tmp, rd.data(), sizeof(uint8_t)*size, cudaMemcpyDefault));
+      fedRawDataGPU.push_back(tmp);
+#endif
     }
 
     const auto& detmap = conditions->detToFeds();
@@ -281,9 +292,20 @@ int main(int argc, char** argv)
       if (fedi != invFed) {
         const auto& buffer = fedBufferv[fedi];
         const auto& channel = buffer.channel(detp.fedCh());
-        chanlocs.emplace_back(i, fedi, offset, channel.length());
+        chanlocs.setChannelLoc(i, channel.data(), channel.offset(), offset, channel.length(), detp.fedID(), detp.fedCh());
+#ifdef USE_GPU
+        inputGPU[i] = fedRawDataGPU[fedi];
+#endif
+#if defined(ALIGN)
+        offset += kAlign*((channel.length()-1)/kAlign + 1); // alignment
+#else
         offset += channel.length();
+#endif
       } else {
+        chanlocs.setChannelLoc(i, nullptr, 0, 0, 0, 0, 0);
+#ifdef USE_GPU
+        inputGPU[i] = nullptr;
+#endif
         std::cout << "Missing fed " << fedi << " for detID " << detp.fedID() << std::endl;
       }
     }
@@ -296,23 +318,17 @@ int main(int argc, char** argv)
     // This could be combined with the previous loop, but
     // this loop can be parallelized, previous is serial
 #pragma omp for
-    for(size_t i = 0; i < detmap.size(); ++i) {
-      const auto& detp = detmap[i];
-      const auto& chaninfo = chanlocs[i];
-      const auto fedId = detp.fedID();
+    for(size_t i = 0; i < chanlocs.size(); ++i) {
+      const auto fedId = chanlocs.fedID(i);
       const auto fedi = fedIndex[fedId-SiStripConditions::kFedFirst];
 
-      auto aoff = chaninfo.offset_;
-
       if (fedi != invFed) {
-        const auto& buffer = fedBufferv[fedi];
-        const auto& channel = buffer.channel(detp.fedCh());
+        auto aoff = chanlocs.offset(i);
+        const auto data = chanlocs.input(i);
+        auto choff = chanlocs.inoff(i);
 
-        const auto data = channel.data();
-        const auto choff = channel.offset();
-
-        for (auto k = 0; k < channel.length(); ++k) {
-          alldata[aoff++] = data[(choff+k)^7];
+        for (auto k = 0; k < chanlocs.length(i); ++k) {
+          alldata[aoff++] = data[(choff++)^7];
         }
       }
     }
@@ -322,5 +338,10 @@ int main(int argc, char** argv)
 
     const detId_t idet = 369120277;
     printClusters(idet, clusters[idet]);
+#ifdef USE_GPU
+    for (auto m : fedRawDataGPU) {
+      cudaFree(m);
+    }
+#endif
   }
 }

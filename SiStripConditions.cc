@@ -1,8 +1,14 @@
-#include "SiStripConditions.h"
-
 #include <fstream>
 #include <iostream>
 #include <algorithm>
+#include <cassert>
+
+#ifdef USE_GPU
+#include <cuda_runtime.h>
+#include "cuda_rt_call.h"
+#endif
+
+#include "SiStripConditions.h"
 
 struct FileChannel {
   fedId_t fedId_;
@@ -45,11 +51,21 @@ SiStripConditions::SiStripConditions(const std::string& file)
 #endif
 }
 
-const ChannelConditions SiStripConditions::operator()(fedId_t fed, fedCh_t channel) const
+const ChannelConditions SiStripConditionsBase::operator()(fedId_t fed, fedCh_t channel) const
 {
   fed -= kFedFirst;
   const auto detID = detID_[fed][channel];
   const auto pair = iPair_[fed][channel];
   const auto choff = channel*kStripsPerChannel;
   return ChannelConditions(detID, pair, &noise_[fed][choff], &gain_[fed][choff], &bad_[fed][choff]);
+}
+
+SiStripConditionsGPU* SiStripConditionsBase::toGPU() const
+{
+  SiStripConditionsGPU* s = nullptr;
+#ifdef USE_GPU
+  CUDA_RT_CALL(cudaMalloc((void**) &s, sizeof(SiStripConditions)));
+  CUDA_RT_CALL(cudaMemcpyAsync(s, this, sizeof(SiStripConditions), cudaMemcpyDefault));
+#endif
+  return s;
 }
