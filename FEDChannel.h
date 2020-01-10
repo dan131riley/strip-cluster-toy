@@ -3,24 +3,25 @@
 #include <memory>
 
 #include "SiStripConditions.h"
+#include "cudaCompat.h"
 
 class ChannelLocsGPU;
 
 class ChannelLocsBase {
 public:
-  ChannelLocsBase() {}
+  ChannelLocsBase(size_t size) : size_(size) {}
   ~ChannelLocsBase() {}
 
   void setChannelLoc(uint32_t index, const uint8_t* input, size_t inoff, size_t offset, uint16_t length, fedId_t fedID, fedCh_t fedCh);
 
-  size_t size() const { return size_; }
+  __host__ __device__ size_t size() const { return size_; }
 
-  const uint8_t* input(uint32_t index) const { return input_[index]; }
-  size_t inoff(uint32_t index) const { return inoff_[index]; }
-  size_t offset(uint32_t index) const { return offset_[index]; }
-  uint16_t length(uint32_t index) const { return length_[index]; }
-  fedId_t fedID(uint32_t index) const { return fedID_[index]; }
-  fedCh_t fedCh(uint32_t index) const { return fedCh_[index]; }
+  __host__ __device__ const uint8_t* input(uint32_t index) const { return input_[index]; }
+  __host__ __device__ size_t inoff(uint32_t index) const { return inoff_[index]; }
+  __host__ __device__ size_t offset(uint32_t index) const { return offset_[index]; }
+  __host__ __device__ uint16_t length(uint32_t index) const { return length_[index]; }
+  __host__ __device__ fedId_t fedID(uint32_t index) const { return fedID_[index]; }
+  __host__ __device__ fedCh_t fedCh(uint32_t index) const { return fedCh_[index]; }
 
   const uint8_t** input() const { return input_; }
   size_t* inoff() const { return inoff_; }
@@ -47,10 +48,10 @@ public:
 
 class ChannelLocsGPU : public ChannelLocsBase {
 public:
-  ChannelLocsGPU(const ChannelLocsBase&, const uint8_t**);
+  ChannelLocsGPU(size_t size);
   ~ChannelLocsGPU();
-  ChannelLocsBase* onGPU() { return onGPU_; }
-  void reset(const ChannelLocsBase&, const uint8_t**);
+  const ChannelLocsBase* onGPU() const { return onGPU_; }
+  void reset(const ChannelLocsBase&, const std::vector<uint8_t*>& inputGPU);
 private:
   ChannelLocsBase* onGPU_ = nullptr;
 };

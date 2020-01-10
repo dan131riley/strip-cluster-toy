@@ -5,6 +5,8 @@
 #include <string>
 #include <vector>
 
+#include "cudaCompat.h"
+
 using detId_t = uint32_t;
 using fedId_t = uint16_t;
 using fedCh_t = uint8_t;
@@ -66,6 +68,8 @@ public:
 
   const ChannelConditions operator()(fedId_t fed, fedCh_t channel) const;
   SiStripConditionsGPU* toGPU() const;
+
+  __host__ __device__ detId_t detID(fedId_t fed, fedCh_t channel) const { return detID_[fed-kFedFirst][channel]; }
 
 protected:
   float noise_[kFedCount][kChannelCount*kStripsPerChannel];

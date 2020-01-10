@@ -7,6 +7,7 @@
 #ifdef USE_GPU
 #include <cuda_runtime.h>
 #include "cuda_rt_call.h"
+#include "unpackGPU.cuh"
 #endif
 
 #include "Clusterizer.h"
@@ -19,7 +20,6 @@
 #if defined(ALIGN)
 static constexpr auto kAlign = ALIGN;
 #endif
-
 
 class StripByStripAdder {
 public:
@@ -213,7 +213,7 @@ int main(int argc, char** argv)
 
   FEDRawData rawData;
   std::vector<FEDRawData> fedRawDatav;
-  std::vector<detId_t> fedIdv;
+  std::vector<fedId_t> fedIdv;
   std::vector<FEDBuffer> fedBufferv;
   std::vector<fedId_t> fedIndex(SiStripConditions::kFedCount);
   std::vector<uint8_t> alldata;
@@ -226,7 +226,8 @@ int main(int argc, char** argv)
 
 #ifdef USE_GPU
   std::vector<uint8_t*> fedRawDataGPU;
-  std::vector<uint8_t*> inputGPU(conditions->detToFeds().size());
+  std::vector<uint8_t*> inputGPU(chanlocs.size());
+  ChannelLocsGPU chanlocsGPU(chanlocs.size());
 
   fedRawDataGPU.reserve(SiStripConditions::kFedCount);
 #endif
@@ -294,7 +295,7 @@ int main(int argc, char** argv)
         const auto& channel = buffer.channel(detp.fedCh());
         chanlocs.setChannelLoc(i, channel.data(), channel.offset(), offset, channel.length(), detp.fedID(), detp.fedCh());
 #ifdef USE_GPU
-        inputGPU[i] = fedRawDataGPU[fedi];
+        inputGPU[i] = fedRawDataGPU[fedi] + (channel.data() - fedRawDatav[fedi].data());
 #endif
 #if defined(ALIGN)
         offset += kAlign*((channel.length()-1)/kAlign + 1); // alignment
@@ -302,7 +303,7 @@ int main(int argc, char** argv)
         offset += channel.length();
 #endif
       } else {
-        chanlocs.setChannelLoc(i, nullptr, 0, 0, 0, 0, 0);
+        chanlocs.setChannelLoc(i, nullptr, 0, 0, 0, invFed, 0);
 #ifdef USE_GPU
         inputGPU[i] = nullptr;
 #endif
@@ -313,22 +314,40 @@ int main(int argc, char** argv)
     std::cout << "Total size " << totalSize << " channel sum " << offset << std::endl;
     alldata.resize(offset); // resize to the amount of data
 
+#ifdef USE_GPU
+    chanlocsGPU.reset(chanlocs, inputGPU);
+    uint8_t* alldataGPU;
+    detId_t* detIdGPU;
+    stripId_t* stripIdGPU;
+    CUDA_RT_CALL(cudaMalloc((void**) &alldataGPU, sizeof(uint8_t)*offset));
+    CUDA_RT_CALL(cudaMalloc((void**) &detIdGPU, sizeof(detId_t)*offset));
+    CUDA_RT_CALL(cudaMalloc((void**) &stripIdGPU, sizeof(stripId_t)*offset));
+
+    unpackChannelsGPU(chanlocsGPU, condGPU.get(), alldataGPU, detIdGPU, stripIdGPU);
+
+    std::vector<uint8_t> outdata(offset);
+    CUDA_RT_CALL(cudaMemcpy(outdata.data(), alldataGPU, sizeof(uint8_t)*offset, cudaMemcpyDefault));
+#endif
+
     // iterate over the detector in DetID/APVPair order
     // copying the data into the alldata array
     // This could be combined with the previous loop, but
     // this loop can be parallelized, previous is serial
 #pragma omp for
     for(size_t i = 0; i < chanlocs.size(); ++i) {
-      const auto fedId = chanlocs.fedID(i);
-      const auto fedi = fedIndex[fedId-SiStripConditions::kFedFirst];
+      const auto data = chanlocs.input(i);
 
-      if (fedi != invFed) {
+      if (data != nullptr) {
         auto aoff = chanlocs.offset(i);
-        const auto data = chanlocs.input(i);
         auto choff = chanlocs.inoff(i);
 
         for (auto k = 0; k < chanlocs.length(i); ++k) {
-          alldata[aoff++] = data[(choff++)^7];
+          alldata[aoff] = data[choff^7];
+          if (i == 0 && k < 8) {
+            printf("Offset %lu/%lu data 0x%02x/0x%02x\n", choff^7, aoff, (int) data[choff^7], (int) alldata[aoff]);
+          }
+          assert(alldata[aoff] == outdata[aoff]);
+          aoff++; choff++;
         }
       }
     }
@@ -339,6 +358,9 @@ int main(int argc, char** argv)
     const detId_t idet = 369120277;
     printClusters(idet, clusters[idet]);
 #ifdef USE_GPU
+    cudaFree(alldataGPU);
+    cudaFree(detIdGPU);
+    cudaFree(stripIdGPU);
     for (auto m : fedRawDataGPU) {
       cudaFree(m);
     }
