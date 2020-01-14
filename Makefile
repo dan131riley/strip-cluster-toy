@@ -1,5 +1,7 @@
-CXXFLAGS += -std=c++14 -g -Wall -DUSE_GPU -I$(CUDAINCDIR) #-O3 -fopenmp 
-LDFLAGS  += -std=c++14 -g #-fopenmp 
+USE_GPU = -DUSE_GPU
+
+CXXFLAGS += -std=c++14 -g -Wall $(USE_GPU) -I$(CUDAINCDIR) -O3 -fopenmp -I${CUBROOT}
+LDFLAGS  += -std=c++14 -g -fopenmp 
 CXX = c++
 CC  = c++
 
@@ -7,8 +9,8 @@ ARCH = -arch=sm_70
 
 NVCC = nvcc
 CUBROOT=/mnt/data1/dsr/cub
-CUDAFLAGS += -std=c++14 -O3 -DUSE_GPU ${ARCH} -I${CUBROOT}
-CUDALDFLAGS += -lcudart
+CUDAFLAGS += -std=c++14 -O3 $(USE_GPU) ${ARCH} -I${CUBROOT}
+CUDALDFLAGS += -lcudart -lgomp
 
 strip-cluster : strip-cluster.o Clusterizer.o FEDChannel.o SiStripConditions.o FEDRawData.o SiStripFEDBuffer.o unpackGPU.o
 	${NVCC} ${CUDAFLAGS} -o $@ $+ ${CUDALDFLAGS}

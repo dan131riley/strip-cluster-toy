@@ -11,7 +11,9 @@
 #include <cstdint>
 #include <cstring>
 
+#ifdef __CUDA_RUNTIME_H__
 #include <cuda_runtime.h>
+#endif
 
 namespace cudaCompat {
 

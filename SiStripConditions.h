@@ -70,6 +70,16 @@ public:
   SiStripConditionsGPU* toGPU() const;
 
   __host__ __device__ detId_t detID(fedId_t fed, fedCh_t channel) const { return detID_[fed-kFedFirst][channel]; }
+  __host__ __device__ APVPair_t iPair(fedId_t fed, fedCh_t channel) const { return iPair_[fed-kFedFirst][channel]; }
+
+  __host__ __device__ float noise(fedId_t fed, fedCh_t channel, stripId_t strip) const
+    { return noise_[fed-kFedFirst][channel*kStripsPerChannel + (strip % kStripsPerChannel)]; }
+
+  __host__ __device__ float gain(fedId_t fed, fedCh_t channel, stripId_t strip) const
+    { return gain_[fed-kFedFirst][channel*kStripsPerChannel + (strip % kStripsPerChannel)]; }
+
+  __host__ __device__ bool bad(fedId_t fed, fedCh_t channel, stripId_t strip) const
+    { return bad_[fed-kFedFirst][channel*kStripsPerChannel + (strip % kStripsPerChannel)]; }
 
 protected:
   float noise_[kFedCount][kChannelCount*kStripsPerChannel];

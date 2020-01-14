@@ -6,6 +6,7 @@
 
 #ifdef USE_GPU
 #include <cuda_runtime.h>
+#include <cub/util_debug.cuh>
 #include "cuda_rt_call.h"
 #include "unpackGPU.cuh"
 #endif
@@ -16,10 +17,6 @@
 #include "FEDZSChannelUnpacker.h"
 
 //#define DBGPRINT 1
-#define ALIGN 16
-#if defined(ALIGN)
-static constexpr auto kAlign = ALIGN;
-#endif
 
 class StripByStripAdder {
 public:
@@ -52,12 +49,9 @@ private:
 void
 testUnpackZS(const std::vector<uint8_t>& alldata, 
              const SiStripConditions* conditions, 
-             const ChannelLocs& chanlocs,
-             const FEDReadoutMode mode)
+             const ChannelLocs& chanlocs)
 {
   std::vector<uint16_t> stripId(alldata.size());
-
-  const uint16_t headerlen = mode == READOUT_MODE_ZERO_SUPPRESSED ? 7 : 2;
 
 #pragma omp for
   for(size_t i = 0; i < chanlocs.size(); ++i) {
@@ -65,8 +59,8 @@ testUnpackZS(const std::vector<uint8_t>& alldata,
 
     if (channel.length() > 0) {
       const uint8_t* data = channel.data();
-      const auto payloadOffset = channel.offset()+headerlen;
-      const auto payloadLength = channel.length()-headerlen;
+      const auto payloadOffset = channel.offset();
+      const auto payloadLength = channel.length();
       auto offset = payloadOffset;
 
 #if defined(DBGPRINT)
@@ -79,10 +73,6 @@ testUnpackZS(const std::vector<uint8_t>& alldata,
       std::cout << "FED " << fedId << " channel " << (int) fedCh << " det:pair " << detid << ":" << ipair << std::endl;
       std::cout << "Offset " << payloadOffset << " Length " << payloadLength << std::endl;
 #endif
-
-      for (auto i = channel.offset(); i < channel.offset() + headerlen; ++i) {
-        stripId[i] = invStrip;
-      }
 
       while (offset < payloadOffset+payloadLength) {
         stripId[offset] = invStrip;
@@ -104,25 +94,10 @@ testUnpackZS(const std::vector<uint8_t>& alldata,
 }
 
 template<typename OUT>
-OUT unpackZS(const FEDChannel& chan, FEDReadoutMode mode, uint16_t stripOffset, OUT out, detId_t idet)
+OUT unpackZS(const FEDChannel& chan, uint16_t stripOffset, OUT out, detId_t idet)
 {
-  switch ( mode ) {
-    case READOUT_MODE_ZERO_SUPPRESSED_LITE8:
-    {
-      auto unpacker = FEDZSChannelUnpacker::zeroSuppressedLiteModeUnpacker(chan);
-      while (unpacker.hasData()) { *out++ = SiStripDigi(stripOffset+unpacker.sampleNumber(), unpacker.adc()); unpacker++; }
-    }
-    break;
-    case READOUT_MODE_ZERO_SUPPRESSED:
-    {
-      auto unpacker = FEDZSChannelUnpacker::zeroSuppressedModeUnpacker(chan);
-      while (unpacker.hasData()) { *out++ = SiStripDigi(stripOffset+unpacker.sampleNumber(), unpacker.adc()); unpacker++; }
-    }
-    break;
-    default:
-      ::abort();
-  }
-
+  auto unpacker = FEDZSChannelUnpacker::zeroSuppressedZeroModeUnpacker(chan);
+  while (unpacker.hasData()) { *out++ = SiStripDigi(stripOffset+unpacker.sampleNumber(), unpacker.adc()); unpacker++; }
   return out;
 }
 
@@ -145,8 +120,7 @@ void printClusters(detId_t idet, const SiStripClusters& clusters)
 SiStripClusterMap
 fillClusters(const std::vector<uint8_t>& alldata, 
              const SiStripConditions* conditions, 
-             const ChannelLocs& chanlocs,
-             const FEDReadoutMode mode)
+             const ChannelLocs& chanlocs)
 {
   Clusterizer clusterizer(conditions);
   Clusterizer::State state;
@@ -183,7 +157,7 @@ fillClusters(const std::vector<uint8_t>& alldata,
 
     if (chan.length() > 0) {
       auto perStripAdder = StripByStripAdder(clusterizer, state, out);
-      unpackZS(chan, mode, ipair*256, perStripAdder, detid);
+      unpackZS(chan, ipair*256, perStripAdder, detid);
     }
   }
 
@@ -235,7 +209,7 @@ int main(int argc, char** argv)
   while (!datafile.eof()) {
     size_t size = 0;
     size_t totalSize = 0;
-    FEDReadoutMode mode;
+    FEDReadoutMode mode = READOUT_MODE_INVALID;
 
 #ifdef USE_GPU
     fedRawDataGPU.clear();
@@ -285,6 +259,8 @@ int main(int argc, char** argv)
 
     // iterate over the detector in DetID/APVPair order
     // mapping out where the data are
+    const uint16_t headerlen = mode == READOUT_MODE_ZERO_SUPPRESSED ? 7 : 2;
+
     for(size_t i = 0; i < detmap.size(); ++i) {
       const auto& detp = detmap[i];
 
@@ -293,14 +269,19 @@ int main(int argc, char** argv)
       if (fedi != invFed) {
         const auto& buffer = fedBufferv[fedi];
         const auto& channel = buffer.channel(detp.fedCh());
-        chanlocs.setChannelLoc(i, channel.data(), channel.offset(), offset, channel.length(), detp.fedID(), detp.fedCh());
+
+        if (channel.length() >= headerlen) {
+          chanlocs.setChannelLoc(i, channel.data(), channel.offset()+headerlen, offset, channel.length()-headerlen,
+                                 detp.fedID(), detp.fedCh());
+          offset += channel.length()-headerlen;
+        } else {
+          chanlocs.setChannelLoc(i, channel.data(), channel.offset(), offset, channel.length(),
+                                 detp.fedID(), detp.fedCh());
+          offset += channel.length();
+          assert(channel.length() == 0);
+        }
 #ifdef USE_GPU
         inputGPU[i] = fedRawDataGPU[fedi] + (channel.data() - fedRawDatav[fedi].data());
-#endif
-#if defined(ALIGN)
-        offset += kAlign*((channel.length()-1)/kAlign + 1); // alignment
-#else
-        offset += channel.length();
 #endif
       } else {
         chanlocs.setChannelLoc(i, nullptr, 0, 0, 0, invFed, 0);
@@ -319,11 +300,19 @@ int main(int argc, char** argv)
     uint8_t* alldataGPU;
     detId_t* detIdGPU;
     stripId_t* stripIdGPU;
+    fedId_t* fedIdGPU;
+    fedCh_t* fedChGPU;
     CUDA_RT_CALL(cudaMalloc((void**) &alldataGPU, sizeof(uint8_t)*offset));
     CUDA_RT_CALL(cudaMalloc((void**) &detIdGPU, sizeof(detId_t)*offset));
     CUDA_RT_CALL(cudaMalloc((void**) &stripIdGPU, sizeof(stripId_t)*offset));
+    CUDA_RT_CALL(cudaMalloc((void**) &fedIdGPU, sizeof(fedId_t)*offset));
+    CUDA_RT_CALL(cudaMalloc((void**) &fedChGPU, sizeof(fedCh_t)*offset));
 
-    unpackChannelsGPU(chanlocsGPU, condGPU.get(), alldataGPU, detIdGPU, stripIdGPU);
+    unpackChannelsGPU(chanlocsGPU, condGPU.get(), alldataGPU, detIdGPU, stripIdGPU, fedIdGPU, fedChGPU);
+
+    cudaDeviceSynchronize();
+    cudaError_t e = cudaGetLastError();
+    CubDebugExit(e);
 
     std::vector<uint8_t> outdata(offset);
     CUDA_RT_CALL(cudaMemcpy(outdata.data(), alldataGPU, sizeof(uint8_t)*offset, cudaMemcpyDefault));
@@ -343,17 +332,21 @@ int main(int argc, char** argv)
 
         for (auto k = 0; k < chanlocs.length(i); ++k) {
           alldata[aoff] = data[choff^7];
+#if defined(DBGPRINT)
           if (i == 0 && k < 8) {
-            printf("Offset %lu/%lu data 0x%02x/0x%02x\n", choff^7, aoff, (int) data[choff^7], (int) alldata[aoff]);
+            printf("Channel %lu offset %lu/%lu data 0x%02x/0x%02x\n", i, choff^7, aoff, (int) data[choff^7], (int) alldata[aoff]);
           }
+#endif
+#if defined(USE_GPU)
           assert(alldata[aoff] == outdata[aoff]);
+#endif
           aoff++; choff++;
         }
       }
     }
 
-    testUnpackZS(alldata, conditions.get(), chanlocs, mode);
-    auto clusters = fillClusters(alldata, conditions.get(), chanlocs, mode);
+    testUnpackZS(alldata, conditions.get(), chanlocs);
+    auto clusters = fillClusters(alldata, conditions.get(), chanlocs);
 
     const detId_t idet = 369120277;
     printClusters(idet, clusters[idet]);
@@ -361,6 +354,8 @@ int main(int argc, char** argv)
     cudaFree(alldataGPU);
     cudaFree(detIdGPU);
     cudaFree(stripIdGPU);
+    cudaFree(fedIdGPU);
+    cudaFree(fedChGPU);
     for (auto m : fedRawDataGPU) {
       cudaFree(m);
     }

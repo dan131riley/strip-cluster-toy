@@ -5,8 +5,7 @@
 class FEDZSChannelUnpacker
 {
 public:
-  static FEDZSChannelUnpacker zeroSuppressedModeUnpacker(const FEDChannel& channel);
-  static FEDZSChannelUnpacker zeroSuppressedLiteModeUnpacker(const FEDChannel& channel);
+  static FEDZSChannelUnpacker zeroSuppressedZeroModeUnpacker(const FEDChannel& channel);
   FEDZSChannelUnpacker();
   uint8_t sampleNumber() const;
   uint8_t adc() const;
@@ -45,17 +44,10 @@ FEDZSChannelUnpacker::FEDZSChannelUnpacker(const uint8_t* payload, const uint16_
   if (channelPayloadLength_) readNewClusterInfo();
 }
 
-inline FEDZSChannelUnpacker FEDZSChannelUnpacker::zeroSuppressedModeUnpacker(const FEDChannel& channel)
+inline FEDZSChannelUnpacker FEDZSChannelUnpacker::zeroSuppressedZeroModeUnpacker(const FEDChannel& channel)
 {
   uint16_t length = channel.length();
-  FEDZSChannelUnpacker result(channel.data(),channel.offset()+7,length-7);
-  return result;
-}
-
-inline FEDZSChannelUnpacker FEDZSChannelUnpacker::zeroSuppressedLiteModeUnpacker(const FEDChannel& channel)
-{
-  uint16_t length = channel.length();
-  FEDZSChannelUnpacker result(channel.data(),channel.offset()+2,length-2);
+  FEDZSChannelUnpacker result(channel.data(),channel.offset(),length);
   return result;
 }
 
