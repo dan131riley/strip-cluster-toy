@@ -64,8 +64,8 @@ SiStripConditionsGPU* SiStripConditionsBase::toGPU() const
 {
   SiStripConditionsGPU* s = nullptr;
 #ifdef USE_GPU
-  CUDA_RT_CALL(cudaMalloc((void**) &s, sizeof(SiStripConditions)));
-  CUDA_RT_CALL(cudaMemcpyAsync(s, this, sizeof(SiStripConditions), cudaMemcpyDefault));
+  CUDA_RT_CALL(cudaMalloc((void**) &s, sizeof(SiStripConditionsGPU)));
+  CUDA_RT_CALL(cudaMemcpyAsync(s, this, sizeof(SiStripConditionsGPU), cudaMemcpyDefault));
 #endif
   return s;
 }

@@ -3,5 +3,5 @@
 #include "FEDChannel.h"
 
 void unpackChannelsGPU(const ChannelLocsGPU& chanlocs, const SiStripConditionsGPU* conditions,
-                       uint8_t* alldataGPU, detId_t* detIdGPU, stripId_t* stripIdGPU,
-                       fedId_t* fedId, fedCh_t* fedCh);
+                       uint8_t* alldata, detId_t* detId, stripId_t* stripId,
+                       float* noise, float* gain, bool* bad);

@@ -300,15 +300,17 @@ int main(int argc, char** argv)
     uint8_t* alldataGPU;
     detId_t* detIdGPU;
     stripId_t* stripIdGPU;
-    fedId_t* fedIdGPU;
-    fedCh_t* fedChGPU;
+    float* noiseGPU;
+    float* gainGPU;
+    bool* badGPU;
     CUDA_RT_CALL(cudaMalloc((void**) &alldataGPU, sizeof(uint8_t)*offset));
     CUDA_RT_CALL(cudaMalloc((void**) &detIdGPU, sizeof(detId_t)*offset));
     CUDA_RT_CALL(cudaMalloc((void**) &stripIdGPU, sizeof(stripId_t)*offset));
-    CUDA_RT_CALL(cudaMalloc((void**) &fedIdGPU, sizeof(fedId_t)*offset));
-    CUDA_RT_CALL(cudaMalloc((void**) &fedChGPU, sizeof(fedCh_t)*offset));
+    CUDA_RT_CALL(cudaMalloc((void**) &noiseGPU, sizeof(float)*offset));
+    CUDA_RT_CALL(cudaMalloc((void**) &gainGPU, sizeof(float)*offset));
+    CUDA_RT_CALL(cudaMalloc((void**) &badGPU, sizeof(bool)*offset));
 
-    unpackChannelsGPU(chanlocsGPU, condGPU.get(), alldataGPU, detIdGPU, stripIdGPU, fedIdGPU, fedChGPU);
+    unpackChannelsGPU(chanlocsGPU, condGPU.get(), alldataGPU, detIdGPU, stripIdGPU, noiseGPU, gainGPU, badGPU);
 
     cudaDeviceSynchronize();
     cudaError_t e = cudaGetLastError();
@@ -332,11 +334,6 @@ int main(int argc, char** argv)
 
         for (auto k = 0; k < chanlocs.length(i); ++k) {
           alldata[aoff] = data[choff^7];
-#if defined(DBGPRINT)
-          if (i == 0 && k < 8) {
-            printf("Channel %lu offset %lu/%lu data 0x%02x/0x%02x\n", i, choff^7, aoff, (int) data[choff^7], (int) alldata[aoff]);
-          }
-#endif
 #if defined(USE_GPU)
           assert(alldata[aoff] == outdata[aoff]);
 #endif
@@ -354,8 +351,9 @@ int main(int argc, char** argv)
     cudaFree(alldataGPU);
     cudaFree(detIdGPU);
     cudaFree(stripIdGPU);
-    cudaFree(fedIdGPU);
-    cudaFree(fedChGPU);
+    cudaFree(noiseGPU);
+    cudaFree(gainGPU);
+    cudaFree(badGPU);
     for (auto m : fedRawDataGPU) {
       cudaFree(m);
     }

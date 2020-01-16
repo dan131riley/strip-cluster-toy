@@ -13,7 +13,7 @@ constexpr auto kStripsPerChannel = SiStripConditionsBase::kStripsPerChannel;
 __global__
 static void unpackChannels(const ChannelLocsBase* chanlocs, const SiStripConditionsGPU* conditions,
                            uint8_t* alldata, detId_t* detId, stripId_t* stripId,
-                           fedId_t* fedId, fedCh_t* fedCh)
+                           float* noise, float* gain, bool* bad)
 {
   const int tid = threadIdx.x;
   const int bid = blockIdx.x;
@@ -21,10 +21,10 @@ static void unpackChannels(const ChannelLocsBase* chanlocs, const SiStripConditi
 
   const auto chan = nthreads*bid + tid;
   if (chan < chanlocs->size()) {
-    auto fedid = chanlocs->fedID(chan);
-    auto fedch = chanlocs->fedCh(chan);
-    auto detid = conditions->detID(fedid, fedch);
-    auto ipair = conditions->iPair(fedid, fedch);
+    const auto fedid = chanlocs->fedID(chan);
+    const auto fedch = chanlocs->fedCh(chan);
+    const auto detid = conditions->detID(fedid, fedch);
+    const auto ipair = conditions->iPair(fedid, fedch);
 
     const auto data = chanlocs->input(chan);
     const auto len = chanlocs->length(chan);
@@ -32,40 +32,41 @@ static void unpackChannels(const ChannelLocsBase* chanlocs, const SiStripConditi
     if (data != nullptr && len > 0) {
       auto aoff = chanlocs->offset(chan);
       auto choff = chanlocs->inoff(chan);
-
-      for (auto i = 0; i < len; ++i) {
-        detId[aoff] = detid;
-        fedId[aoff] = fedid;
-        fedCh[aoff] = fedch;
-        stripId[aoff] = invStrip;
-        alldata[aoff++] = data[(choff++)^7];
-      }
-
-      aoff = chanlocs->offset(chan);
       const auto end = aoff + len;
 
       while (aoff < end) {
+        stripId[aoff] = invStrip;
+        detId[aoff] = detid;
+        alldata[aoff] = data[(choff++)^7];
         auto stripIndex = alldata[aoff++] + kStripsPerChannel*ipair;
+ 
+        stripId[aoff] = invStrip;
+        detId[aoff] = detid;
+        alldata[aoff] = data[(choff++)^7];
         const auto groupLength = alldata[aoff++];
 
         for (auto i = 0; i < groupLength; ++i) {
-          stripId[aoff++] = stripIndex++;
+          noise[aoff] = conditions->noise(fedid, fedch, stripIndex);
+          gain[aoff]  = conditions->gain(fedid, fedch, stripIndex);
+          bad[aoff]   = conditions->bad(fedid, fedch, stripIndex);
+          detId[aoff] = detid;
+          stripId[aoff] = stripIndex++;
+          alldata[aoff++] = data[(choff++)^7];
         }
       }
-      assert(aoff == end);
     }
   }
 }
 
 void unpackChannelsGPU(const ChannelLocsGPU& chanlocs, const SiStripConditionsGPU* conditions,
-                       uint8_t* alldataGPU, detId_t* detIdGPU, stripId_t* stripIdGPU,
-                       fedId_t* fedId, fedCh_t* fedCh)
+                       uint8_t* alldata, detId_t* detId, stripId_t* stripId,
+                       float *noise, float* gain, bool* bad)
 {
   constexpr int nthreads = 128;
   const auto channels = chanlocs.size();
   const auto nblocks = (channels + nthreads - 1)/nthreads;
   
-  unpackChannels<<<nblocks, nthreads>>>(chanlocs.onGPU(), conditions, alldataGPU, detIdGPU, stripIdGPU, fedId, fedCh);
+  unpackChannels<<<nblocks, nthreads>>>(chanlocs.onGPU(), conditions, alldata, detId, stripId, noise, gain, bad);
 }
 
 #endif
