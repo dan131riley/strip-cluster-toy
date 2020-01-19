@@ -24,7 +24,7 @@ static void unpackChannels(const ChannelLocsBase* chanlocs, const SiStripConditi
     const auto fedid = chanlocs->fedID(chan);
     const auto fedch = chanlocs->fedCh(chan);
     const auto detid = conditions->detID(fedid, fedch);
-    const auto ipair = conditions->iPair(fedid, fedch);
+    const auto ipoff = kStripsPerChannel*conditions->iPair(fedid, fedch);
 
     const auto data = chanlocs->input(chan);
     const auto len = chanlocs->length(chan);
@@ -38,7 +38,7 @@ static void unpackChannels(const ChannelLocsBase* chanlocs, const SiStripConditi
         stripId[aoff] = invStrip;
         detId[aoff] = detid;
         alldata[aoff] = data[(choff++)^7];
-        auto stripIndex = alldata[aoff++] + kStripsPerChannel*ipair;
+        auto stripIndex = alldata[aoff++] + ipoff;
  
         stripId[aoff] = invStrip;
         detId[aoff] = detid;

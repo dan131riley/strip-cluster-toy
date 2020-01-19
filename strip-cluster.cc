@@ -3,6 +3,23 @@
 #include <algorithm>
 #include <cassert>
 #include <functional>
+#include <chrono>
+
+typedef std::chrono::time_point<std::chrono::system_clock> timepoint;
+typedef std::chrono::duration<double> tick;
+
+static timepoint now()
+{
+  return std::chrono::system_clock::now();
+}
+
+static tick delta(timepoint& t0)
+{
+  timepoint t1(now());
+  tick d = t1 - t0;
+  t0 = t1;
+  return d;
+}
 
 #ifdef USE_GPU
 #include <cuda_runtime.h>
@@ -53,7 +70,7 @@ testUnpackZS(const std::vector<uint8_t>& alldata,
 {
   std::vector<uint16_t> stripId(alldata.size());
 
-#pragma omp for
+#pragma omp parallel for
   for(size_t i = 0; i < chanlocs.size(); ++i) {
     const auto channel = FEDChannel(alldata.data(), chanlocs.offset(i), chanlocs.length(i));
 
@@ -237,6 +254,14 @@ int main(int argc, char** argv)
       
       const auto& rd = fedRawDatav.back();
       assert(rd.data() == addr);
+
+#ifdef USE_GPU
+      uint8_t* tmp;
+      CUDA_RT_CALL(cudaMalloc((void**) &tmp, sizeof(uint8_t)*size));
+      CUDA_RT_CALL(cudaMemcpyAsync(tmp, rd.data(), sizeof(uint8_t)*size, cudaMemcpyDefault));
+      fedRawDataGPU.push_back(tmp);
+#endif
+
       fedBufferv.emplace_back(rd.data(), rd.size());
 
       if (fedBufferv.size() == 1) {
@@ -246,12 +271,6 @@ int main(int argc, char** argv)
       }
 
       totalSize += size;
-#ifdef USE_GPU
-      uint8_t* tmp;
-      CUDA_RT_CALL(cudaMalloc((void**) &tmp, sizeof(uint8_t)*size));
-      CUDA_RT_CALL(cudaMemcpyAsync(tmp, rd.data(), sizeof(uint8_t)*size, cudaMemcpyDefault));
-      fedRawDataGPU.push_back(tmp);
-#endif
     }
 
     const auto& detmap = conditions->detToFeds();
@@ -310,11 +329,13 @@ int main(int argc, char** argv)
     CUDA_RT_CALL(cudaMalloc((void**) &gainGPU, sizeof(float)*offset));
     CUDA_RT_CALL(cudaMalloc((void**) &badGPU, sizeof(bool)*offset));
 
+    timepoint t0(now());
     unpackChannelsGPU(chanlocsGPU, condGPU.get(), alldataGPU, detIdGPU, stripIdGPU, noiseGPU, gainGPU, badGPU);
 
     cudaDeviceSynchronize();
     cudaError_t e = cudaGetLastError();
     CubDebugExit(e);
+    tick GPUtime = delta(t0);
 
     std::vector<uint8_t> outdata(offset);
     CUDA_RT_CALL(cudaMemcpy(outdata.data(), alldataGPU, sizeof(uint8_t)*offset, cudaMemcpyDefault));
@@ -324,7 +345,9 @@ int main(int argc, char** argv)
     // copying the data into the alldata array
     // This could be combined with the previous loop, but
     // this loop can be parallelized, previous is serial
-#pragma omp for
+    timepoint t1(now());
+
+#pragma omp parallel for
     for(size_t i = 0; i < chanlocs.size(); ++i) {
       const auto data = chanlocs.input(i);
 
@@ -341,8 +364,11 @@ int main(int argc, char** argv)
         }
       }
     }
-
     testUnpackZS(alldata, conditions.get(), chanlocs);
+    tick CPUtime = delta(t1);
+
+    std::cout << "Times GPU/CPU " << GPUtime.count() << "/" << CPUtime.count() << std::endl;
+
     auto clusters = fillClusters(alldata, conditions.get(), chanlocs);
 
     const detId_t idet = 369120277;
