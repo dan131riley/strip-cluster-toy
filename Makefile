@@ -12,7 +12,7 @@ CUBROOT=/mnt/data1/dsr/cub
 CUDAFLAGS += -std=c++14 -O3 $(USE_GPU) ${ARCH} -I${CUBROOT}
 CUDALDFLAGS += -lcudart -lgomp
 
-strip-cluster : strip-cluster.o Clusterizer.o FEDChannel.o SiStripConditions.o FEDRawData.o SiStripFEDBuffer.o unpackGPU.o
+strip-cluster : strip-cluster.o Clusterizer.o FEDChannel.o SiStripConditions.o FEDRawData.o SiStripFEDBuffer.o unpackGPU.o allocate_host.o allocate_device.o
 	${NVCC} ${CUDAFLAGS} -o $@ $+ ${CUDALDFLAGS}
 
 strip-cluster.o: strip-cluster.cc Clusterizer.h FEDChannel.h FEDZSChannelUnpacker.h SiStripConditions.h SiStripFEDBuffer.h unpackGPU.cuh
@@ -21,6 +21,8 @@ FEDChannel.o : FEDChannel.cc FEDChannel.h Clusterizer.h
 SiStripConditions.o : SiStripConditions.cc SiStripConditions.h
 FEDRawData.o : FEDRawData.cc FEDRawData.h
 SiStripFEDBuffer.o : SiStripFEDBuffer.cc SiStripFEDBuffer.h FEDChannel.h
+allocate_host.o: allocate_host.cc getCachingHostAllocator.h CachingHostAllocator.h
+allocate_device.o: allocate_device.cc allocate_device.h getCachingDeviceAllocator.h CachingDeviceAllocator.h
 
 unpackGPU.o : unpackGPU.cu unpackGPU.cuh
 	${NVCC} ${CUDAFLAGS} -c -o $@ $<
