@@ -1,6 +1,6 @@
 #include <limits>
 
-#include "cuda_rt_call.h"
+#include "cudaCheck.h"
 #include "getCachingHostAllocator.h"
 
 namespace {
@@ -15,12 +15,12 @@ namespace cudautils {
       throw std::runtime_error("Tried to allocate " + std::to_string(nbytes) +
                                " bytes, but the allocator maximum is " + std::to_string(maxAllocationSize));
     }
-    CUDA_RT_CALL(cudautils::allocator::getCachingHostAllocator().HostAllocate(&ptr, nbytes, stream));
+    cudaCheck(cudautils::allocator::getCachingHostAllocator().HostAllocate(&ptr, nbytes, stream));
     return ptr;
   }
 
   void free_host(void *ptr) {
-    CUDA_RT_CALL(cudautils::allocator::getCachingHostAllocator().HostFree(ptr));
+    cudaCheck(cudautils::allocator::getCachingHostAllocator().HostFree(ptr));
   }
 
 }  // namespace cudautils

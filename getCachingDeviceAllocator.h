@@ -2,7 +2,7 @@
 #define HeterogeneousCore_CUDACore_src_getCachingDeviceAllocator
 
 #include <cuda_runtime.h>
-#include "cuda_rt_call.h"
+#include "cudaCheck.h"
 #include "CachingDeviceAllocator.h"
 
 namespace cudautils {
@@ -23,7 +23,7 @@ namespace cudautils {
 
     inline size_t minCachedBytes() {
       size_t freeMemory, totalMemory;
-      CUDA_RT_CALL(cudaMemGetInfo(&freeMemory, &totalMemory));
+      cudaCheck(cudaMemGetInfo(&freeMemory, &totalMemory));
       size_t ret = static_cast<size_t>(maxCachedFraction * freeMemory);
       if (maxCachedBytes > 0) {
         ret = std::min(ret, maxCachedBytes);

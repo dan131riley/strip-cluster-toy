@@ -2,17 +2,28 @@
 
 #include <memory>
 
+#include "host_unique_ptr.h"
+#include "device_unique_ptr.h"
+
 #include "SiStripConditions.h"
-#include "cudaCompat.h"
 
 class ChannelLocsGPU;
 
+template<template <typename> class T>
 class ChannelLocsBase {
 public:
   ChannelLocsBase(size_t size) : size_(size) {}
   ~ChannelLocsBase() {}
 
-  void setChannelLoc(uint32_t index, const uint8_t* input, size_t inoff, size_t offset, uint16_t length, fedId_t fedID, fedCh_t fedCh);
+  void setChannelLoc(uint32_t index, const uint8_t* input, size_t inoff, size_t offset, uint16_t length, fedId_t fedID, fedCh_t fedCh)
+  {
+    input_[index] = input;
+    inoff_[index] = inoff;
+    offset_[index] = offset;
+    length_[index] = length;
+    fedID_[index] = fedID;
+    fedCh_[index] = fedCh;
+  }
 
   __host__ __device__ size_t size() const { return size_; }
 
@@ -23,37 +34,36 @@ public:
   __host__ __device__ fedId_t fedID(uint32_t index) const { return fedID_[index]; }
   __host__ __device__ fedCh_t fedCh(uint32_t index) const { return fedCh_[index]; }
 
-  const uint8_t** input() const { return input_; }
-  size_t* inoff() const { return inoff_; }
-  size_t* offset() const { return offset_; }
-  uint16_t* length() const { return length_; }
-  fedId_t* fedID() const { return fedID_; }
-  fedCh_t* fedCh() const { return fedCh_; }
+  const uint8_t** input() const { return input_.get(); }
+  size_t* inoff() const { return inoff_.get(); }
+  size_t* offset() const { return offset_.get(); }
+  uint16_t* length() const { return length_.get(); }
+  fedId_t* fedID() const { return fedID_.get(); }
+  fedCh_t* fedCh() const { return fedCh_.get(); }
 
 protected:
-  const uint8_t** input_  = nullptr; // input raw data for channel
-  size_t*   inoff_        = nullptr; // offset in input raw data
-  size_t*   offset_       = nullptr; // global offset in alldata
-  uint16_t* length_       = nullptr; // length of channel data
-  fedId_t*  fedID_        = nullptr;
-  fedCh_t*  fedCh_        = nullptr;
-  size_t    size_         = 0;
+  T<const uint8_t*[]> input_; // input raw data for channel
+  T<size_t[]> inoff_;         // offset in input raw data
+  T<size_t[]> offset_;        // global offset in alldata
+  T<uint16_t[]> length_;      // length of channel data
+  T<fedId_t[]> fedID_;
+  T<fedCh_t[]> fedCh_;
+  size_t size_ = 0;
 };
 
-class ChannelLocs : public ChannelLocsBase {
+class ChannelLocs : public ChannelLocsBase<cudautils::host::unique_ptr> {
+  friend class ChannelLocsGPU;
 public:
-  ChannelLocs(size_t size);
+  ChannelLocs(size_t size, cudaStream_t stream);
   ~ChannelLocs();
 };
 
-class ChannelLocsGPU : public ChannelLocsBase {
+class ChannelLocsGPU : public ChannelLocsBase<cudautils::device::unique_ptr> {
 public:
-  ChannelLocsGPU(size_t size);
+  //using Base = ChannelLocsBase<cudautils::device::unique_ptr>;
+  ChannelLocsGPU(size_t size, cudaStream_t stream);
   ~ChannelLocsGPU();
-  const ChannelLocsBase* onGPU() const { return onGPU_; }
-  void reset(const ChannelLocsBase&, const std::vector<uint8_t*>& inputGPU);
-private:
-  ChannelLocsBase* onGPU_ = nullptr;
+  void reset(const ChannelLocs&, const std::vector<uint8_t*>& inputGPU, cudaStream_t stream);
 };
 
 //holds information about position of a channel in the buffer for use by unpacker

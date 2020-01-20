@@ -24,8 +24,9 @@ static tick delta(timepoint& t0)
 #ifdef USE_GPU
 #include <cuda_runtime.h>
 #include <cub/util_debug.cuh>
-#include "cuda_rt_call.h"
+#include "cudaCheck.h"
 #include "unpackGPU.cuh"
+#include "copyAsync.h"
 #endif
 
 #include "Clusterizer.h"
@@ -195,6 +196,13 @@ int main(int argc, char** argv)
 
   auto conditions = std::make_unique<SiStripConditions>(condfilename);
 #ifdef USE_GPU
+  int gpu_device = 0;
+  cudaCheck(cudaSetDevice(gpu_device));
+  cudaCheck(cudaGetDevice(&gpu_device));
+
+  cudaStream_t stream;
+  cudaCheck(cudaStreamCreate(&stream));
+  
   std::unique_ptr<SiStripConditionsGPU, std::function<void(SiStripConditionsGPU*)>>
     condGPU(conditions->toGPU(), [](SiStripConditionsGPU* p) { cudaFree(p); });
 #endif
@@ -202,23 +210,22 @@ int main(int argc, char** argv)
   std::ifstream datafile(datafilename, std::ios::in | std::ios::binary);
   datafile.seekg(sizeof(size_t)); // skip initial event mark
 
-  FEDRawData rawData;
   std::vector<FEDRawData> fedRawDatav;
   std::vector<fedId_t> fedIdv;
   std::vector<FEDBuffer> fedBufferv;
   std::vector<fedId_t> fedIndex(SiStripConditions::kFedCount);
   std::vector<uint8_t> alldata;
 
-  ChannelLocs chanlocs(conditions->detToFeds().size());
+  ChannelLocs chanlocs(conditions->detToFeds().size(), stream);
 
   fedRawDatav.reserve(SiStripConditions::kFedCount);
   fedIdv.reserve(SiStripConditions::kFedCount);
   fedBufferv.reserve(SiStripConditions::kFedCount);
 
 #ifdef USE_GPU
-  std::vector<uint8_t*> fedRawDataGPU;
+  std::vector<cudautils::device::unique_ptr<uint8_t[]>> fedRawDataGPU;
   std::vector<uint8_t*> inputGPU(chanlocs.size());
-  ChannelLocsGPU chanlocsGPU(chanlocs.size());
+  ChannelLocsGPU chanlocsGPU(chanlocs.size(), stream);
 
   fedRawDataGPU.reserve(SiStripConditions::kFedCount);
 #endif
@@ -244,25 +251,21 @@ int main(int argc, char** argv)
 #if defined(DBGPRINT)
       std::cout << "Reading FEDRawData ID " << fedId << " size " << size << std::endl;
 #endif
-      rawData.resize(size);
-      datafile.read((char*) rawData.data(), size);
+      fedRawDatav.emplace_back(size, stream);
+      auto& rawData = fedRawDatav.back();
+
+      datafile.read((char*) rawData.get(), size);
 
       fedIndex[fedId-SiStripConditions::kFedFirst] = fedIdv.size();
       fedIdv.push_back(fedId);
-      auto addr = rawData.data();
-      fedRawDatav.push_back(std::move(rawData));
       
-      const auto& rd = fedRawDatav.back();
-      assert(rd.data() == addr);
-
 #ifdef USE_GPU
-      uint8_t* tmp;
-      CUDA_RT_CALL(cudaMalloc((void**) &tmp, sizeof(uint8_t)*size));
-      CUDA_RT_CALL(cudaMemcpyAsync(tmp, rd.data(), sizeof(uint8_t)*size, cudaMemcpyDefault));
-      fedRawDataGPU.push_back(tmp);
+      auto tmp = cudautils::make_device_unique<uint8_t[]>(size, stream);
+      cudautils::copyAsync(tmp, rawData.data(), size, stream);
+      fedRawDataGPU.emplace_back(tmp.release());
 #endif
 
-      fedBufferv.emplace_back(rd.data(), rd.size());
+      fedBufferv.emplace_back(rawData.get(), rawData.size());
 
       if (fedBufferv.size() == 1) {
         mode = fedBufferv.back().readoutMode();
@@ -300,7 +303,7 @@ int main(int argc, char** argv)
           assert(channel.length() == 0);
         }
 #ifdef USE_GPU
-        inputGPU[i] = fedRawDataGPU[fedi] + (channel.data() - fedRawDatav[fedi].data());
+        inputGPU[i] = fedRawDataGPU[fedi].get() + (channel.data() - fedRawDatav[fedi].get());
 #endif
       } else {
         chanlocs.setChannelLoc(i, nullptr, 0, 0, 0, invFed, 0);
@@ -315,30 +318,19 @@ int main(int argc, char** argv)
     alldata.resize(offset); // resize to the amount of data
 
 #ifdef USE_GPU
-    chanlocsGPU.reset(chanlocs, inputGPU);
-    uint8_t* alldataGPU;
-    detId_t* detIdGPU;
-    stripId_t* stripIdGPU;
-    float* noiseGPU;
-    float* gainGPU;
-    bool* badGPU;
-    CUDA_RT_CALL(cudaMalloc((void**) &alldataGPU, sizeof(uint8_t)*offset));
-    CUDA_RT_CALL(cudaMalloc((void**) &detIdGPU, sizeof(detId_t)*offset));
-    CUDA_RT_CALL(cudaMalloc((void**) &stripIdGPU, sizeof(stripId_t)*offset));
-    CUDA_RT_CALL(cudaMalloc((void**) &noiseGPU, sizeof(float)*offset));
-    CUDA_RT_CALL(cudaMalloc((void**) &gainGPU, sizeof(float)*offset));
-    CUDA_RT_CALL(cudaMalloc((void**) &badGPU, sizeof(bool)*offset));
+    chanlocsGPU.reset(chanlocs, inputGPU, stream);
+    StripDataGPU stripdata(offset, stream);
 
     timepoint t0(now());
-    unpackChannelsGPU(chanlocsGPU, condGPU.get(), alldataGPU, detIdGPU, stripIdGPU, noiseGPU, gainGPU, badGPU);
+    unpackChannelsGPU(chanlocsGPU, condGPU.get(), stripdata, stream);
 
     cudaDeviceSynchronize();
     cudaError_t e = cudaGetLastError();
     CubDebugExit(e);
     tick GPUtime = delta(t0);
 
-    std::vector<uint8_t> outdata(offset);
-    CUDA_RT_CALL(cudaMemcpy(outdata.data(), alldataGPU, sizeof(uint8_t)*offset, cudaMemcpyDefault));
+    auto outdata = cudautils::make_host_unique<uint8_t[]>(offset, stream);
+    cudautils::copyAsync(outdata, stripdata.alldataGPU_, offset, stream);
 #endif
 
     // iterate over the detector in DetID/APVPair order
@@ -373,16 +365,5 @@ int main(int argc, char** argv)
 
     const detId_t idet = 369120277;
     printClusters(idet, clusters[idet]);
-#ifdef USE_GPU
-    cudaFree(alldataGPU);
-    cudaFree(detIdGPU);
-    cudaFree(stripIdGPU);
-    cudaFree(noiseGPU);
-    cudaFree(gainGPU);
-    cudaFree(badGPU);
-    for (auto m : fedRawDataGPU) {
-      cudaFree(m);
-    }
-#endif
   }
 }

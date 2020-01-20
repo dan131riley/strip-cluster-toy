@@ -13,46 +13,40 @@
  *                      Refactoring and Modifications to fit into CMSSW
  */
 
-#include <vector>
 #include <cstddef>
+
+#include "host_unique_ptr.h"
 
 class FEDRawData {
 public:
-  typedef std::vector<unsigned char> Data;
-  typedef Data::iterator iterator;
-
-  /// Default ctor
-  FEDRawData();
+  typedef cudautils::host::unique_ptr<unsigned char[]> Data;
 
   /// Ctor specifying the size to be preallocated, in bytes.
   /// It is required that the size is a multiple of the size of a FED
   /// word (8 bytes)
-  FEDRawData(size_t newsize);
+  FEDRawData(size_t newsize, cudaStream_t stream);
 
-  /// Copy constructor
-  FEDRawData(const FEDRawData &);
-  FEDRawData(FEDRawData &&arg) : data_(std::move(arg.data_)) {}
+  /// Move constructor
+  FEDRawData(FEDRawData &&arg)
+    : size_(arg.size_), data_(std::move(arg.data_)) {}
   
-  /// assignment
-  FEDRawData& operator=(FEDRawData&& other) { data_ = std::move(other.data_); return *this; }
-
   /// Dtor
   ~FEDRawData();
 
   /// Return a const pointer to the beginning of the data buffer
-  const unsigned char *data() const;
+  const unsigned char *get() const { return data_.get(); }
 
   /// Return a pointer to the beginning of the data buffer
-  unsigned char *data();
+  unsigned char *get() { return data_.get(); }
 
-  /// Lenght of the data buffer in bytes
-  size_t size() const { return data_.size(); }
+  /// return ref to underlying unique_ptr
+  const Data& data() const { return data_; }
 
-  /// Resize to the specified size in bytes. It is required that
-  /// the size is a multiple of the size of a FED word (8 bytes)
-  void resize(size_t newsize);
+  /// Length of the data buffer in bytes
+  size_t size() const { return size_; }
 
 private:
+  size_t size_ = 0;
   Data data_;
 };
 

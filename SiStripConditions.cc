@@ -5,7 +5,7 @@
 
 #ifdef USE_GPU
 #include <cuda_runtime.h>
-#include "cuda_rt_call.h"
+#include "cudaCheck.h"
 #endif
 
 #include "SiStripConditions.h"
@@ -64,8 +64,8 @@ SiStripConditionsGPU* SiStripConditionsBase::toGPU() const
 {
   SiStripConditionsGPU* s = nullptr;
 #ifdef USE_GPU
-  CUDA_RT_CALL(cudaMalloc((void**) &s, sizeof(SiStripConditionsGPU)));
-  CUDA_RT_CALL(cudaMemcpyAsync(s, this, sizeof(SiStripConditionsGPU), cudaMemcpyDefault));
+  cudaCheck(cudaMalloc((void**) &s, sizeof(SiStripConditionsGPU)));
+  cudaCheck(cudaMemcpyAsync(s, this, sizeof(SiStripConditionsGPU), cudaMemcpyDefault));
 #endif
   return s;
 }
