@@ -65,7 +65,7 @@ SiStripConditionsGPU* SiStripConditionsBase::toGPU() const
   SiStripConditionsGPU* s = nullptr;
 #ifdef USE_GPU
   cudaCheck(cudaMalloc((void**) &s, sizeof(SiStripConditionsGPU)));
-  cudaCheck(cudaMemcpyAsync(s, this, sizeof(SiStripConditionsGPU), cudaMemcpyDefault));
+  cudaCheck(cudaMemcpy(s, this, sizeof(SiStripConditionsGPU), cudaMemcpyDefault));
 #endif
   return s;
 }

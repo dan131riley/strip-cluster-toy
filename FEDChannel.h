@@ -58,12 +58,37 @@ public:
   ~ChannelLocs();
 };
 
+struct ChanLocStruct {
+  void Fill(const ChannelLocsGPU& c);
+
+  __host__ __device__ size_t size() const { return size_; }
+
+  __host__ __device__ const uint8_t* input(uint32_t index) const { return input_[index]; }
+  __host__ __device__ size_t inoff(uint32_t index) const { return inoff_[index]; }
+  __host__ __device__ size_t offset(uint32_t index) const { return offset_[index]; }
+  __host__ __device__ uint16_t length(uint32_t index) const { return length_[index]; }
+  __host__ __device__ fedId_t fedID(uint32_t index) const { return fedID_[index]; }
+  __host__ __device__ fedCh_t fedCh(uint32_t index) const { return fedCh_[index]; }
+
+
+  const uint8_t** input_; // input raw data for channel
+  size_t* inoff_;         // offset in input raw data
+  size_t* offset_;        // global offset in alldata
+  uint16_t* length_;      // length of channel data
+  fedId_t* fedID_;
+  fedCh_t* fedCh_;
+  size_t size_;
+};
+
 class ChannelLocsGPU : public ChannelLocsBase<cudautils::device::unique_ptr> {
 public:
   //using Base = ChannelLocsBase<cudautils::device::unique_ptr>;
   ChannelLocsGPU(size_t size, cudaStream_t stream);
   ~ChannelLocsGPU();
   void reset(const ChannelLocs&, const std::vector<uint8_t*>& inputGPU, cudaStream_t stream);
+  const ChanLocStruct* chanLocStruct() const { return chanstruct_.get(); }
+private:
+  cudautils::device::unique_ptr<ChanLocStruct> chanstruct_;
 };
 
 //holds information about position of a channel in the buffer for use by unpacker
