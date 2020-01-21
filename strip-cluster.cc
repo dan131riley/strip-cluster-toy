@@ -23,7 +23,8 @@ static tick delta(timepoint& t0)
 
 #ifdef USE_GPU
 #include <cuda_runtime.h>
-#include <cub/util_debug.cuh>
+#include "getCachingDeviceAllocator.h"
+#include "getCachingHostAllocator.h"
 #include "cudaCheck.h"
 #include "unpackGPU.cuh"
 #include "copyAsync.h"
@@ -71,7 +72,7 @@ testUnpackZS(const std::vector<uint8_t>& alldata,
 {
   std::vector<uint16_t> stripId(alldata.size());
 
-#pragma omp parallel for
+  //#pragma omp parallel for
   for(size_t i = 0; i < chanlocs.size(); ++i) {
     const auto channel = FEDChannel(alldata.data(), chanlocs.offset(i), chanlocs.length(i));
 
@@ -182,27 +183,11 @@ fillClusters(const std::vector<uint8_t>& alldata,
   return clusters;
 }
 
-int main(int argc, char** argv)
+void processEvents(const std::string& datafilename, const std::string& condfilename, int gpu_device, cudaStream_t stream)
 {
-  std::string datafilename("stripdata.bin");
-  std::string condfilename("stripcond.bin");
-
-  if (argc > 1) {
-    std::string prefix(argv[1]);
-    datafilename = prefix + datafilename;
-    condfilename = prefix + condfilename;
-  }
-  std::cout << "Reading " << datafilename << "+" << condfilename << std::endl;
-
   auto conditions = std::make_unique<SiStripConditions>(condfilename);
-#ifdef USE_GPU
-  int gpu_device = 0;
-  cudaCheck(cudaSetDevice(gpu_device));
-  cudaCheck(cudaGetDevice(&gpu_device));
 
-  cudaStream_t stream;
-  cudaCheck(cudaStreamCreate(&stream));
-  
+#ifdef USE_GPU
   std::unique_ptr<SiStripConditionsGPU, std::function<void(SiStripConditionsGPU*)>>
     condGPU(conditions->toGPU(), [](SiStripConditionsGPU* p) { cudaFree(p); });
 #endif
@@ -239,6 +224,7 @@ int main(int argc, char** argv)
     fedRawDataGPU.clear();
 #endif
     fedRawDatav.clear();
+    fedBufferv.clear();
     fedIdv.clear();
     fedIndex.clear();
     fedIndex.resize(SiStripConditions::kFedCount, invFed);
@@ -262,7 +248,7 @@ int main(int argc, char** argv)
 #ifdef USE_GPU
       auto tmp = cudautils::make_device_unique<uint8_t[]>(size, stream);
       cudautils::copyAsync(tmp, rawData.data(), size, stream);
-      fedRawDataGPU.emplace_back(tmp.release());
+      fedRawDataGPU.push_back(std::move(tmp));
 #endif
 
       fedBufferv.emplace_back(rawData.get(), rawData.size());
@@ -323,14 +309,11 @@ int main(int argc, char** argv)
 
     timepoint t0(now());
     unpackChannelsGPU(chanlocsGPU, condGPU.get(), stripdata, stream);
-
-    cudaDeviceSynchronize();
-    cudaError_t e = cudaGetLastError();
-    CubDebugExit(e);
     tick GPUtime = delta(t0);
 
     auto outdata = cudautils::make_host_unique<uint8_t[]>(offset, stream);
     cudautils::copyAsync(outdata, stripdata.alldataGPU_, offset, stream);
+    cudaCheck(cudaStreamSynchronize(stream));
 #endif
 
     // iterate over the detector in DetID/APVPair order
@@ -339,7 +322,7 @@ int main(int argc, char** argv)
     // this loop can be parallelized, previous is serial
     timepoint t1(now());
 
-#pragma omp parallel for
+    //#pragma omp parallel for
     for(size_t i = 0; i < chanlocs.size(); ++i) {
       const auto data = chanlocs.input(i);
 
@@ -366,4 +349,36 @@ int main(int argc, char** argv)
     const detId_t idet = 369120277;
     printClusters(idet, clusters[idet]);
   }
+}
+
+int main(int argc, char** argv)
+{
+  std::string datafilename("stripdata.bin");
+  std::string condfilename("stripcond.bin");
+
+  if (argc > 1) {
+    std::string prefix(argv[1]);
+    datafilename = prefix + datafilename;
+    condfilename = prefix + condfilename;
+  }
+  std::cout << "Reading " << datafilename << "+" << condfilename << std::endl;
+
+#ifdef USE_GPU
+  int gpu_device = 0;
+  cudaCheck(cudaSetDevice(gpu_device));
+  cudaCheck(cudaGetDevice(&gpu_device));
+
+  cudaStream_t stream;
+  cudaCheck(cudaStreamCreate(&stream));
+#endif
+
+  processEvents(datafilename, condfilename, gpu_device, stream);
+
+#if defined(USE_GPU)
+  cudautils::allocator::getCachingDeviceAllocator().FreeAllCached();
+  cudautils::allocator::getCachingHostAllocator().FreeAllCached();
+  cudaCheck(cudaStreamDestroy(stream));
+  cudaCheck(cudaDeviceSynchronize());
+  cudaCheck(cudaDeviceReset());
+#endif
 }

@@ -3,6 +3,7 @@
 
 #include <memory>
 #include <functional>
+#include <cassert>
 
 #include "allocate_device.h"
 
@@ -16,6 +17,7 @@ namespace cudautils {
         DeviceDeleter(int device): device_{device} {}
 
         void operator()(void *ptr) {
+          assert(device_ >= 0 || ptr == nullptr);
           if(__builtin_expect(device_ >= 0, true)) {
             free_device(device_, ptr);
           }
