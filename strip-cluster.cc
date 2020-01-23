@@ -241,8 +241,10 @@ void processEvents(const std::string& datafilename, const std::string& condfilen
 
   fedRawDataGPU.reserve(SiStripConditions::kFedCount);
 #endif
+  auto eventno = 0;
 
   while (!datafile.eof()) {
+    eventno++;
     size_t size = 0;
     size_t totalSize = 0;
     FEDReadoutMode mode = READOUT_MODE_INVALID;
