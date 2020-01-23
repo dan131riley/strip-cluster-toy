@@ -5,6 +5,8 @@
 #include <functional>
 #include <chrono>
 
+constexpr auto nStreams = 1;
+
 typedef std::chrono::time_point<std::chrono::system_clock> timepoint;
 typedef std::chrono::duration<double> tick;
 
@@ -28,6 +30,8 @@ static tick delta(timepoint& t0)
 #include "cudaCheck.h"
 #include "unpackGPU.cuh"
 #include "copyAsync.h"
+#include "cluster.h"
+#include "clusterGPU.cuh"
 #endif
 
 #include "Clusterizer.h"
@@ -183,13 +187,36 @@ fillClusters(const std::vector<uint8_t>& alldata,
   return clusters;
 }
 
-void processEvents(const std::string& datafilename, const std::string& condfilename, int gpu_device, cudaStream_t stream)
+void processEvents(const std::string& datafilename, const std::string& condfilename, int gpu_device, cudaStream_t streams[])
 {
   auto conditions = std::make_unique<SiStripConditions>(condfilename);
+  constexpr auto stream = 0;
 
 #ifdef USE_GPU
   std::unique_ptr<SiStripConditionsGPU, std::function<void(SiStripConditionsGPU*)>>
     condGPU(conditions->toGPU(), [](SiStripConditionsGPU* p) { cudaFree(p); });
+
+
+  sst_data_t *sst_data_d[nStreams], *pt_sst_data_d[nStreams];
+  calib_data_t *pt_calib_data_d;
+  clust_data_t *clust_data_d[nStreams], *pt_clust_data_d[nStreams];
+  clust_data_t *clust_data[nStreams];
+  for (int i=0; i<nStreams; i++) {
+    sst_data_d[i] = (sst_data_t *)malloc(sizeof(sst_data_t));
+    clust_data_d[i] = (clust_data_t *)malloc(sizeof(clust_data_t));
+    clust_data[i] = (clust_data_t *)malloc(sizeof(clust_data_t));
+  }
+
+  gpu_timing_t *gpu_timing[nStreams];
+  for (int i=0; i<nStreams; i++) {
+    gpu_timing[i] = (gpu_timing_t *)malloc(sizeof(gpu_timing_t));
+    gpu_timing[i]->memTransDHTime = 0.0;
+    gpu_timing[i]->memTransHDTime = 0.0;
+    gpu_timing[i]->memAllocTime = 0.0;
+    gpu_timing[i]->memFreeTime = 0.0;
+  }
+
+  allocateCalibDataGPU(&pt_calib_data_d, gpu_timing[0], gpu_device, streams[0]);
 #endif
 
   std::ifstream datafile(datafilename, std::ios::in | std::ios::binary);
@@ -201,7 +228,7 @@ void processEvents(const std::string& datafilename, const std::string& condfilen
   std::vector<fedId_t> fedIndex(SiStripConditions::kFedCount);
   std::vector<uint8_t> alldata;
 
-  ChannelLocs chanlocs(conditions->detToFeds().size(), stream);
+  ChannelLocs chanlocs(conditions->detToFeds().size(), streams[stream]);
 
   fedRawDatav.reserve(SiStripConditions::kFedCount);
   fedIdv.reserve(SiStripConditions::kFedCount);
@@ -210,7 +237,7 @@ void processEvents(const std::string& datafilename, const std::string& condfilen
 #ifdef USE_GPU
   std::vector<cudautils::device::unique_ptr<uint8_t[]>> fedRawDataGPU;
   std::vector<uint8_t*> inputGPU(chanlocs.size());
-  ChannelLocsGPU chanlocsGPU(chanlocs.size(), stream);
+  ChannelLocsGPU chanlocsGPU(chanlocs.size(), streams[stream]);
 
   fedRawDataGPU.reserve(SiStripConditions::kFedCount);
 #endif
@@ -237,7 +264,7 @@ void processEvents(const std::string& datafilename, const std::string& condfilen
 #if defined(DBGPRINT)
       std::cout << "Reading FEDRawData ID " << fedId << " size " << size << std::endl;
 #endif
-      fedRawDatav.emplace_back(size, stream);
+      fedRawDatav.emplace_back(size, streams[stream]);
       auto& rawData = fedRawDatav.back();
 
       datafile.read((char*) rawData.get(), size);
@@ -246,8 +273,8 @@ void processEvents(const std::string& datafilename, const std::string& condfilen
       fedIdv.push_back(fedId);
       
 #ifdef USE_GPU
-      auto tmp = cudautils::make_device_unique<uint8_t[]>(size, stream);
-      cudautils::copyAsync(tmp, rawData.data(), size, stream);
+      auto tmp = cudautils::make_device_unique<uint8_t[]>(size, streams[stream]);
+      cudautils::copyAsync(tmp, rawData.data(), size, streams[stream]);
       fedRawDataGPU.push_back(std::move(tmp));
 #endif
 
@@ -300,20 +327,56 @@ void processEvents(const std::string& datafilename, const std::string& condfilen
       }
     }
 
-    std::cout << "Total size " << totalSize << " channel sum " << offset << std::endl;
-    alldata.resize(offset); // resize to the amount of data
+    const auto max_strips = offset;
+
+    std::cout << "Raw data size " << totalSize << " channel data size " << max_strips << std::endl;
+    alldata.resize(max_strips); // resize to the amount of data
 
 #ifdef USE_GPU
-    chanlocsGPU.reset(chanlocs, inputGPU, stream);
-    StripDataGPU stripdata(offset, stream);
+    sst_data_d[stream]->nStrips = max_strips;
+
+    chanlocsGPU.reset(chanlocs, inputGPU, streams[stream]);
+    StripDataGPU stripdata(max_strips, streams[stream]);
+    const int max_seedstrips = MAX_SEEDSTRIPS;
 
     timepoint t0(now());
-    unpackChannelsGPU(chanlocsGPU, condGPU.get(), stripdata, stream);
+
+    unpackChannelsGPU(chanlocsGPU, condGPU.get(), stripdata, streams[stream]);
+        allocateSSTDataGPU(max_strips, stripdata, sst_data_d[stream], &pt_sst_data_d[stream], gpu_timing[stream], gpu_device, streams[stream]);
+
+    calib_data_t calib_data;
+    calib_data.noise = stripdata.noiseGPU_.get();
+    calib_data.gain = stripdata.gainGPU_.get();
+    calib_data.bad  = stripdata.badGPU_.get();
+    cudaCheck(cudaMemcpyAsync(pt_calib_data_d, &calib_data, sizeof(calib_data_t), cudaMemcpyHostToDevice, streams[stream]));
+
+        setSeedStripsNCIndexGPU(sst_data_d[stream], pt_sst_data_d[stream],
+                            &calib_data, pt_calib_data_d, condGPU.get(),
+                            gpu_timing[stream], streams[stream]);
+
+        allocateClustDataGPU(max_seedstrips, clust_data_d[stream], &pt_clust_data_d[stream],
+                         gpu_timing[stream], gpu_device, streams[stream]);
+
+        findClusterGPU(sst_data_d[stream], pt_sst_data_d[stream],
+                   &calib_data, pt_calib_data_d, condGPU.get(),
+                   clust_data_d[stream], pt_clust_data_d[stream],
+                   gpu_timing[stream], streams[stream]);
+
+    allocateClustData(max_seedstrips, clust_data[stream], streams[stream]);
+        cpyGPUToCPU(sst_data_d[stream], pt_sst_data_d[stream],
+                clust_data[stream], clust_data_d[stream],
+                gpu_timing[stream], streams[stream]);
+
+        freeClustDataGPU(clust_data_d[stream], pt_clust_data_d[stream], gpu_timing[stream], gpu_device, streams[stream]);
+        freeSSTDataGPU(sst_data_d[stream], pt_sst_data_d[stream], gpu_timing[stream], gpu_device, streams[stream]);
+
     tick GPUtime = delta(t0);
 
-    auto outdata = cudautils::make_host_unique<uint8_t[]>(offset, stream);
-    cudautils::copyAsync(outdata, stripdata.alldataGPU_, offset, stream);
-    cudaCheck(cudaStreamSynchronize(stream));
+    auto outdata = cudautils::make_host_unique<uint8_t[]>(max_strips, streams[stream]);
+    cudautils::copyAsync(outdata, stripdata.alldataGPU_, max_strips, streams[stream]);
+    cudaCheck(cudaStreamSynchronize(streams[stream]));
+    freeClustData(clust_data[stream]);
+
 #endif
 
     // iterate over the detector in DetID/APVPair order
@@ -349,6 +412,14 @@ void processEvents(const std::string& datafilename, const std::string& condfilen
     const detId_t idet = 369120277;
     printClusters(idet, clusters[idet]);
   }
+#ifdef USE_GPU
+  for (int i=0; i<nStreams; i++) {
+    free(sst_data_d[i]);
+    free(clust_data_d[i]);
+    free(gpu_timing[i]);
+  }
+  freeCalibDataGPU(pt_calib_data_d, gpu_timing[0], gpu_device, streams[0]);
+#endif
 }
 
 int main(int argc, char** argv)
@@ -368,16 +439,20 @@ int main(int argc, char** argv)
   cudaCheck(cudaSetDevice(gpu_device));
   cudaCheck(cudaGetDevice(&gpu_device));
 
-  cudaStream_t stream;
-  cudaCheck(cudaStreamCreate(&stream));
+  cudaStream_t streams[nStreams];
+  for (auto i = 0; i < nStreams; ++i) {
+    cudaCheck(cudaStreamCreate(&streams[i]));
+  }
 #endif
 
-  processEvents(datafilename, condfilename, gpu_device, stream);
+  processEvents(datafilename, condfilename, gpu_device, streams);
 
 #if defined(USE_GPU)
   cudautils::allocator::getCachingDeviceAllocator().FreeAllCached();
   cudautils::allocator::getCachingHostAllocator().FreeAllCached();
-  cudaCheck(cudaStreamDestroy(stream));
+  for (auto i = 0; i < nStreams; ++i) {
+    cudaCheck(cudaStreamDestroy(streams[i]));
+  }
   cudaCheck(cudaDeviceSynchronize());
   cudaCheck(cudaDeviceReset());
 #endif

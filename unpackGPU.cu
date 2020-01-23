@@ -37,7 +37,7 @@ static void unpackChannels(const ChanLocStruct* chanlocs, const SiStripCondition
 
       while (aoff < end) {
         stripId[aoff] = invStrip;
-        detId[aoff] = detid;
+        detId[aoff] = invDet;
         alldata[aoff] = data[(choff++)^7];
         auto stripIndex = alldata[aoff++] + ipoff;
  
@@ -82,6 +82,7 @@ void unpackChannelsGPU(const ChannelLocsGPU& chanlocs, const SiStripConditionsGP
                                                    stripdata.noiseGPU_.get(),
                                                    stripdata.gainGPU_.get(),
                                                    stripdata.badGPU_.get());
+  CUDA_RT_CALL(cudaGetLastError());
 }
 
 #endif
