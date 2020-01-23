@@ -15,7 +15,7 @@
 #define MAX_STRIPS 600000
 #define MAX_SEEDSTRIPS 150000
 
-//using detId_t = uint32_t;
+static constexpr auto kClusterMaxStrips = 16;
 
 typedef struct {
   detId_t *detId;

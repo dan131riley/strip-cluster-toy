@@ -17,7 +17,7 @@ CUDALDFLAGS += -lcudart -lgomp
 strip-cluster : strip-cluster.o Clusterizer.o FEDChannel.o SiStripConditions.o FEDRawData.o SiStripFEDBuffer.o unpackGPU.o clusterGPU.o allocate_host.o  allocate_device.o cluster.o
 	${NVCC} ${CUDAFLAGS} -o $@ $+ ${CUDALDFLAGS}
 
-strip-cluster.o: strip-cluster.cc Clusterizer.h FEDChannel.h FEDZSChannelUnpacker.h SiStripConditions.h SiStripFEDBuffer.h unpackGPU.cuh
+strip-cluster.o: strip-cluster.cc Clusterizer.h FEDChannel.h FEDZSChannelUnpacker.h SiStripConditions.h SiStripFEDBuffer.h unpackGPU.cuh cluster.h
 Clusterizer.o: Clusterizer.cc Clusterizer.h SiStripConditions.h
 FEDChannel.o : FEDChannel.cc FEDChannel.h Clusterizer.h
 SiStripConditions.o : SiStripConditions.cc SiStripConditions.h
@@ -30,7 +30,7 @@ cluster.o: cluster.cc cluster.h
 unpackGPU.o : unpackGPU.cu unpackGPU.cuh
 	${NVCC} ${CUDAFLAGS} -c -o $@ $<
 
-clusterGPU.o : clusterGPU.cu clusterGPU.cuh
+clusterGPU.o : clusterGPU.cu clusterGPU.cuh cluster.h
 	${NVCC} ${CUDAFLAGS} -c -o $@ $<
 
 clean:

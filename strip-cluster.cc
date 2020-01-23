@@ -180,7 +180,7 @@ fillClusters(const std::vector<uint8_t>& alldata,
 
     if (chan.length() > 0) {
       auto perStripAdder = StripByStripAdder(clusterizer, state, out);
-      unpackZS(chan, ipair*256, perStripAdder, detid);
+      unpackZS(chan, ipair*ChannelConditions::kStripsPerChannel, perStripAdder, detid);
     }
   }
 
@@ -350,30 +350,32 @@ void processEvents(const std::string& datafilename, const std::string& condfilen
     calib_data.bad  = stripdata.badGPU_.get();
     cudaCheck(cudaMemcpyAsync(pt_calib_data_d, &calib_data, sizeof(calib_data_t), cudaMemcpyHostToDevice, streams[stream]));
 
-        setSeedStripsNCIndexGPU(sst_data_d[stream], pt_sst_data_d[stream],
+    setSeedStripsNCIndexGPU(sst_data_d[stream], pt_sst_data_d[stream],
                             &calib_data, pt_calib_data_d, condGPU.get(),
                             gpu_timing[stream], streams[stream]);
 
-        allocateClustDataGPU(max_seedstrips, clust_data_d[stream], &pt_clust_data_d[stream],
+    allocateClustDataGPU(max_seedstrips, clust_data_d[stream], &pt_clust_data_d[stream],
                          gpu_timing[stream], gpu_device, streams[stream]);
 
-        findClusterGPU(sst_data_d[stream], pt_sst_data_d[stream],
+    findClusterGPU(sst_data_d[stream], pt_sst_data_d[stream],
                    &calib_data, pt_calib_data_d, condGPU.get(),
                    clust_data_d[stream], pt_clust_data_d[stream],
                    gpu_timing[stream], streams[stream]);
 
     allocateClustData(max_seedstrips, clust_data[stream], streams[stream]);
-        cpyGPUToCPU(sst_data_d[stream], pt_sst_data_d[stream],
+    cpyGPUToCPU(sst_data_d[stream], pt_sst_data_d[stream],
                 clust_data[stream], clust_data_d[stream],
                 gpu_timing[stream], streams[stream]);
 
-        freeClustDataGPU(clust_data_d[stream], pt_clust_data_d[stream], gpu_timing[stream], gpu_device, streams[stream]);
-        freeSSTDataGPU(sst_data_d[stream], pt_sst_data_d[stream], gpu_timing[stream], gpu_device, streams[stream]);
+    freeClustDataGPU(clust_data_d[stream], pt_clust_data_d[stream], gpu_timing[stream], gpu_device, streams[stream]);
+    freeSSTDataGPU(sst_data_d[stream], pt_sst_data_d[stream], gpu_timing[stream], gpu_device, streams[stream]);
 
     tick GPUtime = delta(t0);
 
+#ifdef VERIFY_GPU
     auto outdata = cudautils::make_host_unique<uint8_t[]>(max_strips, streams[stream]);
     cudautils::copyAsync(outdata, stripdata.alldataGPU_, max_strips, streams[stream]);
+#endif
     cudaCheck(cudaStreamSynchronize(streams[stream]));
     freeClustData(clust_data[stream]);
 
@@ -395,22 +397,23 @@ void processEvents(const std::string& datafilename, const std::string& condfilen
 
         for (auto k = 0; k < chanlocs.length(i); ++k) {
           alldata[aoff] = data[choff^7];
-#if defined(USE_GPU)
+#if defined(USE_GPU) && defined(VERIFY_GPU)
           assert(alldata[aoff] == outdata[aoff]);
 #endif
           aoff++; choff++;
         }
       }
     }
-    testUnpackZS(alldata, conditions.get(), chanlocs);
+    //testUnpackZS(alldata, conditions.get(), chanlocs);
+    auto clusters = fillClusters(alldata, conditions.get(), chanlocs);
     tick CPUtime = delta(t1);
 
     std::cout << "Times GPU/CPU " << GPUtime.count() << "/" << CPUtime.count() << std::endl;
 
-    auto clusters = fillClusters(alldata, conditions.get(), chanlocs);
-
+#ifdef DBGPRINT
     const detId_t idet = 369120277;
     printClusters(idet, clusters[idet]);
+#endif
   }
 #ifdef USE_GPU
   for (int i=0; i<nStreams; i++) {

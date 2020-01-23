@@ -67,20 +67,20 @@ void allocateClustData(int max_seedstrips, clust_data_t *clust_data, cudaStream_
 #ifdef CACHE_ALLOC
   clust_data->clusterLastIndexLeft = (int *)cudautils::allocate_host(2*max_seedstrips*sizeof(int), stream);
   clust_data->clusterLastIndexRight = clust_data->clusterLastIndexLeft + max_seedstrips;
-  clust_data->clusterADCs = (uint8_t*)cudautils::allocate_host(max_seedstrips*256*sizeof(uint8_t), stream);
+  clust_data->clusterADCs = (uint8_t*)cudautils::allocate_host(max_seedstrips*kClusterMaxStrips*sizeof(uint8_t), stream);
   clust_data->trueCluster = (bool *)cudautils::allocate_host(max_seedstrips*sizeof(bool), stream);
   clust_data->barycenter = (float *)cudautils::allocate_host(max_seedstrips*sizeof(float), stream);
 #else
   CUDA_RT_CALL(cudaHostAlloc((void **)&(clust_data->clusterLastIndexLeft), 2*max_seedstrips*sizeof(int), cudaHostAllocDefault));
   clust_data->clusterLastIndexRight = clust_data->clusterLastIndexLeft + max_seedstrips;
-  CUDA_RT_CALL(cudaHostAlloc((void **)&(clust_data->clusterADCs), max_seedstrips*256*sizeof(uint8_t), cudaHostAllocDefault));
+  CUDA_RT_CALL(cudaHostAlloc((void **)&(clust_data->clusterADCs), max_seedstrips*kClusterMaxStrips*sizeof(uint8_t), cudaHostAllocDefault));
   CUDA_RT_CALL(cudaHostAlloc((void **)&(clust_data->trueCluster), max_seedstrips*sizeof(bool), cudaHostAllocDefault));
   CUDA_RT_CALL(cudaHostAlloc((void **)&(clust_data->barycenter), max_seedstrips*sizeof(float), cudaHostAllocDefault));
 #endif
 #else
   clust_data->clusterLastIndexLeft = (int *)_mm_malloc(2*max_seedstrips*sizeof(int), IDEAL_ALIGNMENT);
   clust_data->clusterLastIndexRight = clust_data->clusterLastIndexLeft + max_seedstrips;
-  clust_data->clusterADCs = (uint8_t *)_mm_malloc(max_seedstrips*256*sizeof(uint8_t), IDEAL_ALIGNMENT);
+  clust_data->clusterADCs = (uint8_t *)_mm_malloc(max_seedstrips*kClusterMaxStrips*sizeof(uint8_t), IDEAL_ALIGNMENT);
   clust_data->trueCluster = (bool *)_mm_malloc(max_seedstrips*sizeof(bool), IDEAL_ALIGNMENT);
   clust_data->barycenter = (float *)_mm_malloc(max_seedstrips*sizeof(float), IDEAL_ALIGNMENT);
 #ifdef NUMA_FT
@@ -88,8 +88,8 @@ void allocateClustData(int max_seedstrips, clust_data_t *clust_data, cudaStream_
   for (int i=0; i<max_seedstrips; i++) {
     clust_data->clusterLastIndexLeft[i] = 0;
     clust_data->clusterLastIndexRight[i] = 0;
-    for (int j=0; j<256; j++) {
-      clust_data->clusterADCs[i*256+j] = 0;
+    for (int j=0; j<kClusterMaxStrips; j++) {
+      clust_data->clusterADCs[i*kClusterMaxStrips+j] = 0;
     }
     clust_data->trueCluster[i] = false;
     clust_data->barycenter[i] = 0.0;

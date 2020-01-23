@@ -3,6 +3,7 @@
 #include <cub/cub.cuh>
 #include "allocate_device.h"
 //#define GPU_DEBUG
+#define COPY_ADC
 
 #if USE_TEXTURE
 texture<float, 1, cudaReadModeElementType> noiseTexRef;
@@ -328,7 +329,9 @@ static void checkClusterConditionGPU(sst_data_t *sst_data_d, calib_data_t *calib
 #endif
            charge = static_cast<int>( static_cast<float>(adc_j)/gain_j + 0.5f );
            if (adc_j < 254) adc_j = ( charge > 1022 ? 255 : (charge > 253 ? 254 : charge));
-           clusterADCs[j*nSeedStripsNC+i] = adc_j;
+           if (j < kClusterMaxStrips) {
+             clusterADCs[j*nSeedStripsNC+i] = adc_j;
+           }
            adcSum += static_cast<float>(adc_j);
            sumx += j*adc_j;
            suma += adc_j;
@@ -394,7 +397,7 @@ extern "C"
 
   *pt_clust_data_d = (clust_data_t *)cudautils::allocate_device(dev, sizeof(clust_data_t), stream);
   clust_data_d->clusterLastIndexLeft = (int *)cudautils::allocate_device(dev, 2*max_strips*sizeof(int), stream);
-  clust_data_d->clusterADCs = (uint8_t *)cudautils::allocate_device(dev, max_strips*256*sizeof(uint8_t), stream);
+  clust_data_d->clusterADCs = (uint8_t *)cudautils::allocate_device(dev, max_strips*kClusterMaxStrips*sizeof(uint8_t), stream);
   clust_data_d->trueCluster = (bool *)cudautils::allocate_device(dev, max_strips*sizeof(bool), stream);
   clust_data_d->barycenter = (float *)cudautils::allocate_device(dev, max_strips*sizeof(float), stream);
   clust_data_d->clusterLastIndexRight = clust_data_d->clusterLastIndexLeft + max_strips;
@@ -508,14 +511,14 @@ void findClusterGPU(sst_data_t *sst_data_d, sst_data_t *pt_sst_data_d, calib_dat
   int *clusterLastIndexLeft = (int *)malloc(nSeedStripsNC*sizeof(int));
   int *clusterLastIndexRight = (int *)malloc(nSeedStripsNC*sizeof(int));
   bool *trueCluster = (bool *)malloc(nSeedStripsNC*sizeof(bool));
-  uint8_t *ADCs = (uint8_t*)malloc(nSeedStripsNC*256*sizeof(uint8_t));
+  uint8_t *ADCs = (uint8_t*)malloc(nSeedStripsNC*kClusterMaxStrips*sizeof(uint8_t));
   //  cudaStreamSynchronize(stream);
   //nSeedStripsNC=sst_data_d->nSeedStripsNC;
   std::cout<<"findClusterGPU"<<"nSeedStripsNC="<<nSeedStripsNC<<std::endl;
   CUDA_RT_CALL(cudaMemcpyAsync((void *)clusterLastIndexLeft, clust_data_d->clusterLastIndexLeft, nSeedStripsNC*sizeof(int), cudaMemcpyDeviceToHost));
   CUDA_RT_CALL(cudaMemcpyAsync((void *)clusterLastIndexRight, clust_data_d->clusterLastIndexRight, nSeedStripsNC*sizeof(int), cudaMemcpyDeviceToHost));
   CUDA_RT_CALL(cudaMemcpyAsync((void *)trueCluster, clust_data_d->trueCluster, nSeedStripsNC*sizeof(bool), cudaMemcpyDeviceToHost));
-  CUDA_RT_CALL(cudaMemcpyAsync((void *)ADCs, clust_data_d->clusterADCs, nSeedStripsNC*256*sizeof(uint8_t), cudaMemcpyDeviceToHost));
+  CUDA_RT_CALL(cudaMemcpyAsync((void *)ADCs, clust_data_d->clusterADCs, nSeedStripsNC*kClusterMaxStrips*sizeof(uint8_t), cudaMemcpyDeviceToHost));
 
   cudaStreamSynchronize(stream);
   nSeedStripsNC=sst_data_d->nSeedStripsNC;
@@ -525,9 +528,9 @@ void findClusterGPU(sst_data_t *sst_data_d, sst_data_t *pt_sst_data_d, calib_dat
       int left=clusterLastIndexLeft[i];
       int right=clusterLastIndexRight[i];
       std::cout<<"i="<<i<<" left "<<left<<" right "<<right<<" : ";
-      int size=right-left+1;
+      int size=std::min(right-left+1, kClusterMaxStrips);
       for (int j=0; j<size; j++){
-	std::cout<<(unsigned int)ADCs[j*nSeedStripsNC+i]<<" ";
+        std::cout<<(unsigned int)ADCs[j*nSeedStripsNC+i]<<" ";
       }
       std::cout<<std::endl;
     }
@@ -632,7 +635,7 @@ void cpyGPUToCPU(sst_data_t * sst_data_d, sst_data_t *pt_sst_data_d, clust_data_
   CUDA_RT_CALL(cudaMemcpyAsync((void *)(clust_data->clusterLastIndexLeft), clust_data_d->clusterLastIndexLeft, nSeedStripsNC*sizeof(int), cudaMemcpyDeviceToHost, stream));
   CUDA_RT_CALL(cudaMemcpyAsync((void *)(clust_data->clusterLastIndexRight), clust_data_d->clusterLastIndexRight, nSeedStripsNC*sizeof(int), cudaMemcpyDeviceToHost, stream));
 #ifdef COPY_ADC
-  CUDA_RT_CALL(cudaMemcpyAsync((void *)(clust_data->clusterADCs), clust_data_d->clusterADCs, nSeedStripsNC*256*sizeof(uint8_t), cudaMemcpyDeviceToHost, stream));
+  CUDA_RT_CALL(cudaMemcpyAsync((void *)(clust_data->clusterADCs), clust_data_d->clusterADCs, nSeedStripsNC*kClusterMaxStrips*sizeof(uint8_t), cudaMemcpyDeviceToHost, stream));
 #endif
   CUDA_RT_CALL(cudaMemcpyAsync((void *)(clust_data->trueCluster), clust_data_d->trueCluster, nSeedStripsNC*sizeof(bool), cudaMemcpyDeviceToHost, stream));
   CUDA_RT_CALL(cudaMemcpyAsync((void *)(clust_data->barycenter), clust_data_d->barycenter, nSeedStripsNC*sizeof(float), cudaMemcpyDeviceToHost, stream));
