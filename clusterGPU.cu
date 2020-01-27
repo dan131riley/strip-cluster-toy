@@ -466,10 +466,10 @@ void findClusterGPU(sst_data_t *sst_data_d, sst_data_t *pt_sst_data_d, calib_dat
 #ifdef GPU_TIMER
   gpu_timer_start(gpu_timing, stream);
 #endif
-  int nthreads = 128;
-  //int nSeedStripsNC = sst_data_d->nSeedStripsNC;
-  int nSeedStripsNC = MAX_SEEDSTRIPS;
-  int nblocks = (nSeedStripsNC+nthreads-1)/nthreads;
+  const int nthreads = 128;
+  const int nSeedStripsNC = sst_data_d->nSeedStripsNC;
+  //int nSeedStripsNC = MAX_SEEDSTRIPS;
+  const int nblocks = (nSeedStripsNC+nthreads-1)/nthreads;
 
 #ifdef GPU_DEBUG
   int nStrips = sst_data_d->nStrips;
@@ -588,6 +588,7 @@ void setSeedStripsNCIndexGPU(sst_data_t *sst_data_d, sst_data_t *pt_sst_data_d, 
   cub::DeviceScan::ExclusiveSum(sst_data_d->d_temp_storage, sst_data_d->temp_storage_bytes, sst_data_d->seedStripsNCMask, sst_data_d->prefixSeedStripsNCMask, sst_data_d->nStrips, stream);
 
   CUDA_RT_CALL(cudaMemcpyAsync((void *)&(sst_data_d->nSeedStripsNC), sst_data_d->prefixSeedStripsNCMask+sst_data_d->nStrips-1, sizeof(int), cudaMemcpyDeviceToHost, stream));
+  cudaStreamSynchronize(stream);
   if (sst_data_d->nSeedStripsNC > MAX_SEEDSTRIPS) {
     printf("Seed strips %d greater than max\n", sst_data_d->nSeedStripsNC);
     sst_data_d->nSeedStripsNC = MAX_SEEDSTRIPS;
@@ -630,8 +631,9 @@ void cpyGPUToCPU(sst_data_t * sst_data_d, sst_data_t *pt_sst_data_d, clust_data_
   //cudaMemcpyAsync((void *)&(sst_data_d->nSeedStripsNC), &(pt_sst_data_d->nSeedStripsNC), sizeof(int), cudaMemcpyDeviceToHost, stream);
   //cudaMemcpy((void *)&(sst_data_d->nSeedStripsNC), &(pt_sst_data_d->nSeedStripsNC), sizeof(int), cudaMemcpyDeviceToHost);
   //cudaStreamSynchronize(stream);
+  const int nSeedStripsNC = sst_data_d->nSeedStripsNC;
 
-  int nSeedStripsNC = MAX_SEEDSTRIPS;
+  //int nSeedStripsNC = MAX_SEEDSTRIPS;
   //std::cout<<"cpyGPUtoCPU Event="<<event<<"offset="<<offset<<"nSeedStripsNC="<<nSeedStripsNC<<std::endl;
 #ifdef GPU_TIMER
   gpu_timer_start(gpu_timing, 0);

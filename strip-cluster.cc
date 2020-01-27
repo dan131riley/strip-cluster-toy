@@ -297,6 +297,7 @@ void processEvents(const std::string& datafilename, const std::string& condfilen
     // iterate over the detector in DetID/APVPair order
     // mapping out where the data are
     const uint16_t headerlen = mode == READOUT_MODE_ZERO_SUPPRESSED ? 7 : 2;
+    timepoint t0(now());
 
     for(size_t i = 0; i < detmap.size(); ++i) {
       const auto& detp = detmap[i];
@@ -340,8 +341,6 @@ void processEvents(const std::string& datafilename, const std::string& condfilen
     chanlocsGPU.reset(chanlocs, inputGPU, streams[stream]);
     StripDataGPU stripdata(max_strips, streams[stream]);
     const int max_seedstrips = MAX_SEEDSTRIPS;
-
-    timepoint t0(now());
 
     unpackChannelsGPU(chanlocsGPU, condGPU.get(), stripdata, streams[stream]);
         allocateSSTDataGPU(max_strips, stripdata, sst_data_d[stream], &pt_sst_data_d[stream], gpu_timing[stream], gpu_device, streams[stream]);
@@ -387,7 +386,6 @@ void processEvents(const std::string& datafilename, const std::string& condfilen
     // copying the data into the alldata array
     // This could be combined with the previous loop, but
     // this loop can be parallelized, previous is serial
-    timepoint t1(now());
 
     //#pragma omp parallel for
     for(size_t i = 0; i < chanlocs.size(); ++i) {
@@ -407,6 +405,7 @@ void processEvents(const std::string& datafilename, const std::string& condfilen
       }
     }
     //testUnpackZS(alldata, conditions.get(), chanlocs);
+    timepoint t1(now());
     auto clusters = fillClusters(alldata, conditions.get(), chanlocs);
     tick CPUtime = delta(t1);
 
