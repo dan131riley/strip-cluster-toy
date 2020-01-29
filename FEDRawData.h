@@ -14,17 +14,16 @@
  */
 
 #include <cstddef>
-
-#include "host_unique_ptr.h"
+#include <memory>
 
 class FEDRawData {
 public:
-  typedef cudautils::host::unique_ptr<unsigned char[]> Data;
+  typedef std::unique_ptr<unsigned char[]> Data;
 
   /// Ctor specifying the size to be preallocated, in bytes.
   /// It is required that the size is a multiple of the size of a FED
   /// word (8 bytes)
-  FEDRawData(size_t newsize, cudaStream_t stream);
+  FEDRawData(size_t newsize);
 
   /// Move constructor
   FEDRawData(FEDRawData &&arg)

@@ -521,7 +521,7 @@ void findClusterGPU(sst_data_t *sst_data_d, sst_data_t *pt_sst_data_d, calib_dat
   CUDA_RT_CALL(cudaMemcpyAsync((void *)ADCs, clust_data_d->clusterADCs, nSeedStripsNC*kClusterMaxStrips*sizeof(uint8_t), cudaMemcpyDeviceToHost));
 
   cudaStreamSynchronize(stream);
-  nSeedStripsNC=sst_data_d->nSeedStripsNC;
+  //nSeedStripsNC=sst_data_d->nSeedStripsNC;
 
   for (int i=0; i<nSeedStripsNC; i++) {
     if (trueCluster[i]){

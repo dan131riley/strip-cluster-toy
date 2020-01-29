@@ -25,6 +25,7 @@ static tick delta(timepoint& t0)
 
 #ifdef USE_GPU
 #include <cuda_runtime.h>
+#include <cuda_profiler_api.h>
 #include "getCachingDeviceAllocator.h"
 #include "getCachingHostAllocator.h"
 #include "cudaCheck.h"
@@ -235,11 +236,12 @@ void processEvents(const std::string& datafilename, const std::string& condfilen
   fedBufferv.reserve(SiStripConditions::kFedCount);
 
 #ifdef USE_GPU
-  std::vector<cudautils::device::unique_ptr<uint8_t[]>> fedRawDataGPU;
   std::vector<uint8_t*> inputGPU(chanlocs.size());
   ChannelLocsGPU chanlocsGPU(chanlocs.size(), streams[stream]);
+  std::vector<size_t> fedRawDataOffsets;
 
-  fedRawDataGPU.reserve(SiStripConditions::kFedCount);
+  fedRawDataOffsets.reserve(SiStripConditions::kFedCount);
+  cudaProfilerStart();
 #endif
   auto eventno = 0;
 
@@ -250,7 +252,7 @@ void processEvents(const std::string& datafilename, const std::string& condfilen
     FEDReadoutMode mode = READOUT_MODE_INVALID;
 
 #ifdef USE_GPU
-    fedRawDataGPU.clear();
+    fedRawDataOffsets.clear();
 #endif
     fedRawDatav.clear();
     fedBufferv.clear();
@@ -266,7 +268,7 @@ void processEvents(const std::string& datafilename, const std::string& condfilen
 #if defined(DBGPRINT)
       std::cout << "Reading FEDRawData ID " << fedId << " size " << size << std::endl;
 #endif
-      fedRawDatav.emplace_back(size, streams[stream]);
+      fedRawDatav.emplace_back(size);
       auto& rawData = fedRawDatav.back();
 
       datafile.read((char*) rawData.get(), size);
@@ -274,11 +276,6 @@ void processEvents(const std::string& datafilename, const std::string& condfilen
       fedIndex[fedId-SiStripConditions::kFedFirst] = fedIdv.size();
       fedIdv.push_back(fedId);
       
-#ifdef USE_GPU
-      auto tmp = cudautils::make_device_unique<uint8_t[]>(size, streams[stream]);
-      cudautils::copyAsync(tmp, rawData.data(), size, streams[stream]);
-      fedRawDataGPU.push_back(std::move(tmp));
-#endif
 
       fedBufferv.emplace_back(rawData.get(), rawData.size());
 
@@ -290,6 +287,19 @@ void processEvents(const std::string& datafilename, const std::string& condfilen
 
       totalSize += size;
     }
+#ifdef USE_GPU
+    auto fedRawDataHost = cudautils::make_host_unique<uint8_t[]>(totalSize, streams[stream]);
+    auto fedRawDataGPU = cudautils::make_device_unique<uint8_t[]>(totalSize, streams[stream]);
+
+    size_t off = 0;
+    for (const auto &d : fedRawDatav) {
+      memcpy(fedRawDataHost.get() + off, d.get(), d.size());
+      fedRawDataOffsets.push_back(off);
+      off += d.size();
+    }
+
+    cudautils::copyAsync(fedRawDataGPU, fedRawDataHost, totalSize, streams[stream]);
+#endif
 
     const auto& detmap = conditions->detToFeds();
     size_t offset = 0;
@@ -311,16 +321,19 @@ void processEvents(const std::string& datafilename, const std::string& condfilen
         if (channel.length() >= headerlen) {
           chanlocs.setChannelLoc(i, channel.data(), channel.offset()+headerlen, offset, channel.length()-headerlen,
                                  detp.fedID(), detp.fedCh());
+#ifdef USE_GPU
+          inputGPU[i] = fedRawDataGPU.get() + fedRawDataOffsets[fedi] + (channel.data() - fedRawDatav[fedi].get());
+#endif
           offset += channel.length()-headerlen;
         } else {
           chanlocs.setChannelLoc(i, channel.data(), channel.offset(), offset, channel.length(),
                                  detp.fedID(), detp.fedCh());
+#ifdef USE_GPU
+          inputGPU[i] = fedRawDataGPU.get() + fedRawDataOffsets[fedi] + (channel.data() - fedRawDatav[fedi].get());
+#endif
           offset += channel.length();
           assert(channel.length() == 0);
         }
-#ifdef USE_GPU
-        inputGPU[i] = fedRawDataGPU[fedi].get() + (channel.data() - fedRawDatav[fedi].get());
-#endif
       } else {
         chanlocs.setChannelLoc(i, nullptr, 0, 0, 0, invFed, 0);
 #ifdef USE_GPU
@@ -343,7 +356,7 @@ void processEvents(const std::string& datafilename, const std::string& condfilen
     const int max_seedstrips = MAX_SEEDSTRIPS;
 
     unpackChannelsGPU(chanlocsGPU, condGPU.get(), stripdata, streams[stream]);
-        allocateSSTDataGPU(max_strips, stripdata, sst_data_d[stream], &pt_sst_data_d[stream], gpu_timing[stream], gpu_device, streams[stream]);
+    allocateSSTDataGPU(max_strips, stripdata, sst_data_d[stream], &pt_sst_data_d[stream], gpu_timing[stream], gpu_device, streams[stream]);
 
     calib_data_t calib_data;
     calib_data.noise = stripdata.noiseGPU_.get();
@@ -373,6 +386,7 @@ void processEvents(const std::string& datafilename, const std::string& condfilen
 
     tick GPUtime = delta(t0);
 
+    //#define VERIFY_GPU
 #ifdef VERIFY_GPU
     auto outdata = cudautils::make_host_unique<uint8_t[]>(max_strips, streams[stream]);
     cudautils::copyAsync(outdata, stripdata.alldataGPU_, max_strips, streams[stream]);
@@ -417,6 +431,7 @@ void processEvents(const std::string& datafilename, const std::string& condfilen
 #endif
   }
 #ifdef USE_GPU
+  cudaProfilerStop();
   for (int i=0; i<nStreams; i++) {
     free(sst_data_d[i]);
     free(clust_data_d[i]);

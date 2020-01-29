@@ -11,10 +11,10 @@
 
 using namespace std;
 
-FEDRawData::FEDRawData(size_t size, cudaStream_t stream)
+FEDRawData::FEDRawData(size_t size)
   : size_(size) {
   assert(size_ % 8 == 0);
-  data_ = cudautils::make_host_unique<unsigned char[]>(size_, stream);
+  data_ = std::make_unique<unsigned char[]>(size_);
 }
 
 FEDRawData::~FEDRawData() {}
