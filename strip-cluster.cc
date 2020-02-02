@@ -384,8 +384,6 @@ void processEvents(const std::string& datafilename, const std::string& condfilen
     freeClustDataGPU(clust_data_d[stream], pt_clust_data_d[stream], gpu_timing[stream], gpu_device, streams[stream]);
     freeSSTDataGPU(sst_data_d[stream], pt_sst_data_d[stream], gpu_timing[stream], gpu_device, streams[stream]);
 
-    tick GPUtime = delta(t0);
-
     //#define VERIFY_GPU
 #ifdef VERIFY_GPU
     auto outdata = cudautils::make_host_unique<uint8_t[]>(max_strips, streams[stream]);
@@ -393,7 +391,7 @@ void processEvents(const std::string& datafilename, const std::string& condfilen
 #endif
     cudaCheck(cudaStreamSynchronize(streams[stream]));
     freeClustData(clust_data[stream]);
-
+    tick GPUtime = delta(t0);
 #endif
 
     // iterate over the detector in DetID/APVPair order

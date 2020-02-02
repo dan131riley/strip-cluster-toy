@@ -646,7 +646,7 @@ void cpyGPUToCPU(sst_data_t * sst_data_d, sst_data_t *pt_sst_data_d, clust_data_
   CUDA_RT_CALL(cudaMemcpyAsync((void *)(clust_data->trueCluster), clust_data_d->trueCluster, nSeedStripsNC*sizeof(bool), cudaMemcpyDeviceToHost, stream));
   CUDA_RT_CALL(cudaMemcpyAsync((void *)(clust_data->barycenter), clust_data_d->barycenter, nSeedStripsNC*sizeof(float), cudaMemcpyDeviceToHost, stream));
   //CUDA_RT_CALL(cudaMemcpyAsync((void *)&(sst_data_d->nSeedStripsNC), &(pt_sst_data_d->nSeedStripsNC), sizeof(int), cudaMemcpyDeviceToHost, stream));
-  CUDA_RT_CALL(cudaStreamSynchronize(stream));
+  //CUDA_RT_CALL(cudaStreamSynchronize(stream));
   //CUDA_RT_CALL(cudaMemcpy((void *)&(sst_data_d->nSeedStripsNC), &(pt_sst_data_d->nSeedStripsNC), sizeof(int), cudaMemcpyDeviceToHost));
 #ifdef GPU_TIMER
   gpu_timing->memTransDHTime += gpu_timer_measure_end(gpu_timing, 0);
