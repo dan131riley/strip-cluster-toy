@@ -15,6 +15,15 @@ public:
   ChannelLocsBase(size_t size) : size_(size) {}
   ~ChannelLocsBase() {}
 
+  ChannelLocsBase(ChannelLocsBase&& arg)
+    : input_(std::move(arg.input_)),
+      inoff_(std::move(arg.inoff_)),
+      offset_(std::move(arg.offset_)),
+      length_(std::move(arg.length_)),
+      fedID_(std::move(arg.fedID_)),
+      fedCh_(std::move(arg.fedCh_)),
+      size_(arg.size_) {}
+
   void setChannelLoc(uint32_t index, const uint8_t* input, size_t inoff, size_t offset, uint16_t length, fedId_t fedID, fedCh_t fedCh)
   {
     input_[index] = input;
@@ -55,6 +64,7 @@ class ChannelLocs : public ChannelLocsBase<cudautils::host::unique_ptr> {
   friend class ChannelLocsGPU;
 public:
   ChannelLocs(size_t size, cudaStream_t stream);
+  ChannelLocs(ChannelLocs&& arg) : ChannelLocsBase(std::move(arg)) {}
   ~ChannelLocs();
 };
 
@@ -84,6 +94,8 @@ class ChannelLocsGPU : public ChannelLocsBase<cudautils::device::unique_ptr> {
 public:
   //using Base = ChannelLocsBase<cudautils::device::unique_ptr>;
   ChannelLocsGPU(size_t size, cudaStream_t stream);
+  ChannelLocsGPU(ChannelLocsGPU&& arg)
+    : ChannelLocsBase(std::move(arg)), chanstruct_(std::move(arg.chanstruct_)) {}
   ~ChannelLocsGPU();
   void reset(const ChannelLocs&, const std::vector<uint8_t*>& inputGPU, cudaStream_t stream);
   const ChanLocStruct* chanLocStruct() const { return chanstruct_.get(); }

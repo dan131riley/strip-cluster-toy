@@ -229,15 +229,21 @@ void processEvents(const std::string& datafilename, const std::string& condfilen
   std::vector<fedId_t> fedIndex(SiStripConditions::kFedCount);
   std::vector<uint8_t> alldata;
 
-  ChannelLocs chanlocs(conditions->detToFeds().size(), streams[stream]);
+  std::vector<ChannelLocs> chanlocsv;
+  for (auto i = 0; i < nStreams; i++) {
+    chanlocsv.emplace_back(conditions->detToFeds().size(), streams[i]);
+  }
 
   fedRawDatav.reserve(SiStripConditions::kFedCount);
   fedIdv.reserve(SiStripConditions::kFedCount);
   fedBufferv.reserve(SiStripConditions::kFedCount);
 
 #ifdef USE_GPU
-  std::vector<uint8_t*> inputGPU(chanlocs.size());
-  ChannelLocsGPU chanlocsGPU(chanlocs.size(), streams[stream]);
+  std::vector<uint8_t*> inputGPU(chanlocsv[stream].size());
+  std::vector<ChannelLocsGPU> chanlocsGPUv;
+  for (auto i = 0; i < nStreams; ++i) {
+   chanlocsGPUv.emplace_back(chanlocsv[i].size(), streams[i]);
+  }
   std::vector<size_t> fedRawDataOffsets;
 
   fedRawDataOffsets.reserve(SiStripConditions::kFedCount);
@@ -319,15 +325,15 @@ void processEvents(const std::string& datafilename, const std::string& condfilen
         const auto& channel = buffer.channel(detp.fedCh());
 
         if (channel.length() >= headerlen) {
-          chanlocs.setChannelLoc(i, channel.data(), channel.offset()+headerlen, offset, channel.length()-headerlen,
-                                 detp.fedID(), detp.fedCh());
+          chanlocsv[stream].setChannelLoc(i, channel.data(), channel.offset()+headerlen, offset, channel.length()-headerlen,
+                                          detp.fedID(), detp.fedCh());
 #ifdef USE_GPU
           inputGPU[i] = fedRawDataGPU.get() + fedRawDataOffsets[fedi] + (channel.data() - fedRawDatav[fedi].get());
 #endif
           offset += channel.length()-headerlen;
         } else {
-          chanlocs.setChannelLoc(i, channel.data(), channel.offset(), offset, channel.length(),
-                                 detp.fedID(), detp.fedCh());
+          chanlocsv[stream].setChannelLoc(i, channel.data(), channel.offset(), offset, channel.length(),
+                                          detp.fedID(), detp.fedCh());
 #ifdef USE_GPU
           inputGPU[i] = fedRawDataGPU.get() + fedRawDataOffsets[fedi] + (channel.data() - fedRawDatav[fedi].get());
 #endif
@@ -335,7 +341,7 @@ void processEvents(const std::string& datafilename, const std::string& condfilen
           assert(channel.length() == 0);
         }
       } else {
-        chanlocs.setChannelLoc(i, nullptr, 0, 0, 0, invFed, 0);
+        chanlocsv[stream].setChannelLoc(i, nullptr, 0, 0, 0, invFed, 0);
 #ifdef USE_GPU
         inputGPU[i] = nullptr;
 #endif
@@ -351,11 +357,11 @@ void processEvents(const std::string& datafilename, const std::string& condfilen
 #ifdef USE_GPU
     sst_data_d[stream]->nStrips = max_strips;
 
-    chanlocsGPU.reset(chanlocs, inputGPU, streams[stream]);
+    chanlocsGPUv[stream].reset(chanlocsv[stream], inputGPU, streams[stream]);
     StripDataGPU stripdata(max_strips, streams[stream]);
     const int max_seedstrips = MAX_SEEDSTRIPS;
 
-    unpackChannelsGPU(chanlocsGPU, condGPU.get(), stripdata, streams[stream]);
+    unpackChannelsGPU(chanlocsGPUv[stream], condGPU.get(), stripdata, streams[stream]);
     allocateSSTDataGPU(max_strips, stripdata, sst_data_d[stream], &pt_sst_data_d[stream], gpu_timing[stream], gpu_device, streams[stream]);
 
     calib_data_t calib_data;
@@ -400,14 +406,14 @@ void processEvents(const std::string& datafilename, const std::string& condfilen
     // this loop can be parallelized, previous is serial
 
     //#pragma omp parallel for
-    for(size_t i = 0; i < chanlocs.size(); ++i) {
-      const auto data = chanlocs.input(i);
+    for(size_t i = 0; i < chanlocsv[stream].size(); ++i) {
+      const auto data = chanlocsv[stream].input(i);
 
       if (data != nullptr) {
-        auto aoff = chanlocs.offset(i);
-        auto choff = chanlocs.inoff(i);
+        auto aoff = chanlocsv[stream].offset(i);
+        auto choff = chanlocsv[stream].inoff(i);
 
-        for (auto k = 0; k < chanlocs.length(i); ++k) {
+        for (auto k = 0; k < chanlocsv[stream].length(i); ++k) {
           alldata[aoff] = data[choff^7];
 #if defined(USE_GPU) && defined(VERIFY_GPU)
           assert(alldata[aoff] == outdata[aoff]);
@@ -418,7 +424,7 @@ void processEvents(const std::string& datafilename, const std::string& condfilen
     }
     //testUnpackZS(alldata, conditions.get(), chanlocs);
     timepoint t1(now());
-    auto clusters = fillClusters(alldata, conditions.get(), chanlocs);
+    auto clusters = fillClusters(alldata, conditions.get(), chanlocsv[stream]);
     tick CPUtime = delta(t1);
 
     std::cout << "Times GPU/CPU " << GPUtime.count() << "/" << CPUtime.count() << std::endl;
